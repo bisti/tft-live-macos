@@ -1,6 +1,8 @@
 # TFT Live macOS
 
-Lanceur communautaire pour jouer à TFT live sur les Mac Apple Silicon.
+Lanceur TFT pour macOS Apple Silicon.
+
+Projet indépendant, non affilié à Riot Games.
 
 **[Télécharger la dernière version](https://github.com/bisti/tft-live-macos/releases/latest)**
 
