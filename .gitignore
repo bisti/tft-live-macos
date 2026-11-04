@@ -1,0 +1,25 @@
+# Public source allowlist. Local game files, profiles, logs and builds stay local.
+/*
+!/.gitignore
+!/README.md
+!/LICENSE
+!/THIRD_PARTY_NOTICES.md
+!/build_arm64_host.py
+!/launch_windows_live.py
+!/launcher_config.py
+!/riot_runtime.py
+!/sdk-host.mm
+!/launch-tft-live.sh
+!/riot-sdk-host-override.json
+!/portable/
+/portable/*
+!/portable/build.py
+!/portable/launcher.mm
+!/standalone/
+/standalone/*
+!/standalone/apple_silicon.py
+!/standalone/sdk_patch.py
+!/tests/
+/tests/*
+!/tests/test_updates.py
+!/tests/test_general_launcher.py

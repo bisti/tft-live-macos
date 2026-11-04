@@ -1,0 +1,269 @@
+{
+  "public": {
+    "keystone.products.teamfighttactics.patchlines.live": {
+      "locale_data": {
+        "available_locales": [
+          "ar_AE",
+          "cs_CZ",
+          "de_DE",
+          "en_US",
+          "es_ES",
+          "es_MX",
+          "fr_FR",
+          "hu_HU",
+          "it_IT",
+          "ja_JP",
+          "ko_KR",
+          "pl_PL",
+          "pt_BR",
+          "ru_RU",
+          "th_TH",
+          "tr_TR",
+          "vi_VN",
+          "zh_MY",
+          "zh_TW"
+        ],
+        "default_locale": "en_US"
+      },
+      "metadata": {
+        "default": {
+          "alias": null,
+          "available_platforms": [
+            "win",
+            "ios",
+            "android",
+            "mac",
+            "windows"
+          ],
+          "client_product_type": "riot_game",
+          "content_paths": {
+            "loc": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/loc",
+            "riotstatus": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public",
+            "social": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/social",
+            "themes": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme"
+          },
+          "default_theme_manifest": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme/manifest.json",
+          "full_name": "Teamfight Tactics",
+          "path_name": "Teamfight Tactics/Live",
+          "product_dependency": {
+            "patchline_id": "live",
+            "product_id": "league_of_legends"
+          },
+          "rso_client_id": "teamfighttactics-client",
+          "theme_manifest": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme/manifest.json"
+        },
+        "hkg": {
+          "default_theme_manifest": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme/manifest_twn.json",
+          "full_name": "聯盟戰棋",
+          "theme_manifest": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme/manifest_twn.json"
+        },
+        "installer": {},
+        "mac": {
+          "default_theme_manifest": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme/manifest_twn.json",
+          "full_name": "聯盟戰棋",
+          "theme_manifest": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme/manifest_twn.json"
+        },
+        "twn": {
+          "default_theme_manifest": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme/manifest_twn.json",
+          "full_name": "聯盟戰棋",
+          "theme_manifest": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme/manifest_twn.json"
+        },
+        "vnm": {
+          "default_theme_manifest": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme/manifest_vnm.json",
+          "full_name": "Đấu Trường Chân Lý",
+          "theme_manifest": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme/manifest_vnm.json"
+        }
+      },
+      "platforms": {
+        "android": {
+          "auto_patch": false,
+          "configurations": [
+            {
+              "allowed_http_fallback_hostnames": null,
+              "bundles_url": "",
+              "dependencies": null,
+              "entitlements": null,
+              "excluded_paths": null,
+              "id": "default",
+              "launchable_on_update_fail": false,
+              "metadata": {},
+              "patch_notes_url": "",
+              "patch_url": "",
+              "secondary_patchlines": null,
+              "seed_url": "",
+              "tags": []
+            }
+          ],
+          "dependencies": null,
+          "deprecated_cloudfront_id": ""
+        },
+        "ios": {
+          "auto_patch": false,
+          "configurations": [
+            {
+              "allowed_http_fallback_hostnames": null,
+              "bundles_url": "",
+              "dependencies": null,
+              "entitlements": null,
+              "excluded_paths": null,
+              "id": "default",
+              "launchable_on_update_fail": false,
+              "metadata": {},
+              "patch_notes_url": "",
+              "patch_url": "",
+              "secondary_patchlines": null,
+              "seed_url": "",
+              "tags": []
+            }
+          ],
+          "dependencies": null,
+          "deprecated_cloudfront_id": ""
+        },
+        "win": {
+          "auto_patch": false,
+          "configurations": [
+            {
+              "allowed_http_fallback_hostnames": null,
+              "bundles_url": "",
+              "dependencies": [],
+              "entitlements": null,
+              "excluded_paths": [
+                "TFT/Saved",
+                "Engine/Saved",
+                "TFT/.sentry-native"
+              ],
+              "id": "EUW1",
+              "launchable_on_update_fail": false,
+              "metadata": {},
+              "patch_notes_url": "",
+              "patch_url": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/releases/CCB28D1A03EB3564.manifest",
+              "secondary_patchlines": null,
+              "seed_url": "",
+              "tags": [],
+              "region_data": {
+                "available_regions": [
+                  "EUW",
+                  "EUW1"
+                ],
+                "default_region": "EUW1"
+              }
+            }
+          ],
+          "dependencies": null,
+          "deprecated_cloudfront_id": "",
+          "icon_path": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme/icon.icns",
+          "install_dir": "TFT Live 18.5 Game.app",
+          "launcher": {
+            "arguments": [
+              "-riotgamesapi-patchline-id={patchline-id}",
+              "-riotgamesapi-settings={settings-token}",
+              "-culture={locale}"
+            ],
+            "component_id": "",
+            "executables": {
+              "app": "",
+              "exe": "Contents/MacOS/TFTClient-Mac-Shipping"
+            }
+          }
+        },
+        "mac": {
+          "auto_patch": false,
+          "configurations": [
+            {
+              "allowed_http_fallback_hostnames": null,
+              "bundles_url": "",
+              "dependencies": [],
+              "entitlements": null,
+              "excluded_paths": [
+                "TFT/Saved",
+                "Engine/Saved",
+                "TFT/.sentry-native"
+              ],
+              "id": "EUW1",
+              "launchable_on_update_fail": false,
+              "metadata": {},
+              "patch_notes_url": "",
+              "patch_url": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/releases/CCB28D1A03EB3564.manifest",
+              "secondary_patchlines": null,
+              "seed_url": "",
+              "tags": [],
+              "region_data": {
+                "available_regions": [
+                  "EUW",
+                  "EUW1"
+                ],
+                "default_region": "EUW1"
+              }
+            }
+          ],
+          "dependencies": null,
+          "deprecated_cloudfront_id": "",
+          "icon_path": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme/icon.icns",
+          "install_dir": "TFT Live 18.5 Game.app",
+          "launcher": {
+            "arguments": [
+              "-riotgamesapi-patchline-id={patchline-id}",
+              "-riotgamesapi-settings={settings-token}",
+              "-culture={locale}"
+            ],
+            "component_id": "",
+            "executables": {
+              "app": "",
+              "exe": "Contents/MacOS/TFTClient-Mac-Shipping"
+            }
+          }
+        },
+        "windows": {
+          "auto_patch": false,
+          "configurations": [
+            {
+              "allowed_http_fallback_hostnames": null,
+              "bundles_url": "",
+              "dependencies": [],
+              "entitlements": null,
+              "excluded_paths": [
+                "TFT/Saved",
+                "Engine/Saved",
+                "TFT/.sentry-native"
+              ],
+              "id": "EUW1",
+              "launchable_on_update_fail": false,
+              "metadata": {},
+              "patch_notes_url": "",
+              "patch_url": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/releases/CCB28D1A03EB3564.manifest",
+              "secondary_patchlines": null,
+              "seed_url": "",
+              "tags": [],
+              "region_data": {
+                "available_regions": [
+                  "EUW",
+                  "EUW1"
+                ],
+                "default_region": "EUW1"
+              }
+            }
+          ],
+          "dependencies": null,
+          "deprecated_cloudfront_id": "",
+          "icon_path": "https://teamfighttactics.secure.dyn.riotcdn.net/channels/public/rccontent/theme/icon.icns",
+          "install_dir": "TFT Live 18.5 Game.app",
+          "launcher": {
+            "arguments": [
+              "-riotgamesapi-patchline-id={patchline-id}",
+              "-riotgamesapi-settings={settings-token}",
+              "-culture={locale}"
+            ],
+            "component_id": "",
+            "executables": {
+              "app": "",
+              "exe": "Contents/MacOS/TFTClient-Mac-Shipping"
+            }
+          }
+        }
+      },
+      "version": ""
+    },
+    "keystone.client.feature_flags.use_patch_proxy_v2.enabled": false
+  },
+  "player": {}
+}
