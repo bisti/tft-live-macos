@@ -13,7 +13,7 @@ Lanceur communautaire pour jouer à TFT live sur les Mac Apple Silicon.
 
 ## Installation
 
-1. Télécharger `TFT Live-AppleSilicon.zip` depuis les versions publiées.
+1. Télécharger `TFT-Live-AppleSilicon.zip` depuis les versions publiées.
 2. Décompresser et déplacer `TFT Live.app` dans Applications.
 3. Ouvrir l’application et se connecter dans Riot.
 4. Attendre la préparation du jeu, puis cliquer sur **Jouer** dans Riot.
@@ -60,7 +60,7 @@ python3 build_arm64_host.py
 python3 portable/build.py
 ```
 
-La sortie comprend `dist/TFT Live.app`, `dist/TFT Live-AppleSilicon.zip` et son
+La sortie comprend `dist/TFT Live.app`, `dist/TFT-Live-AppleSilicon.zip` et son
 empreinte SHA-256. Une copie locale de l’application est également créée à la racine.
 
 Le moteur Python portable est téléchargé depuis Python Build Standalone.

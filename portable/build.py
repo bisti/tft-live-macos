@@ -14,7 +14,7 @@ import time
 
 ROOT = Path(__file__).resolve().parent.parent
 APP = ROOT / "dist/TFT Live.app"
-ARCHIVE = ROOT / "dist/TFT Live-AppleSilicon.zip"
+ARCHIVE = ROOT / "dist/TFT-Live-AppleSilicon.zip"
 PYTHON_URL = "https://github.com/astral-sh/python-build-standalone/releases/download/20261026/cpython-3.13.18%2B20261026-aarch64-apple-darwin-install_only_stripped.tar.gz"
 PYTHON_SHA256 = "8392b6ea51d94391befb2c31ebe75463f045d0b69dfcf5e1bb3234e1f5fa3405"
 
