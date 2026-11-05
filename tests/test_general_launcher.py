@@ -133,7 +133,7 @@ class InstallationTests(unittest.TestCase):
         responses = iter([(200, {"combined_patch_state":"not_installed"}), (201, None),
                           (200, {"combined_patch_state":"out_of_date", "user_cancelled_patching":True})])
         with patch.object(launcher, "api", side_effect=lambda *args, **kwargs: next(responses)), patch.object(launcher.time, "sleep"):
-            with self.assertRaisesRegex(RuntimeError, "reprendre"):
+            with self.assertRaisesRegex(RuntimeError, "resume"):
                 launcher.update_game(None)
 
     def test_new_user_gets_a_writable_per_user_game_location(self):

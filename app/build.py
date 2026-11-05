@@ -43,34 +43,34 @@ def build():
             with urllib.request.urlopen(PYTHON_URL, timeout=60) as response, download.open("wb") as output:
                 shutil.copyfileobj(response, output)
         if hashlib.sha256(download.read_bytes()).hexdigest() != PYTHON_SHA256:
-            raise RuntimeError("L'empreinte du moteur Python portable est invalide.")
+            raise RuntimeError("The portable Python runtime checksum is invalid.")
         with tarfile.open(download) as archive:
             for entry in archive.getmembers():
                 path = Path(entry.name)
                 if path.is_absolute() or ".." in path.parts:
-                    raise RuntimeError("Chemin invalide dans le moteur Python.")
+                    raise RuntimeError("Invalid path in the Python runtime archive.")
                 if entry.issym() and (Path(entry.linkname).is_absolute() or not (resources / path.parent / entry.linkname).resolve().is_relative_to(resources)):
-                    raise RuntimeError("Lien externe dans le moteur Python.")
+                    raise RuntimeError("External link in the Python runtime archive.")
             archive.extractall(resources)
         for name in ["LICENSE", "THIRD_PARTY_NOTICES.md"]:
             shutil.copyfile(ROOT / name, resources / name)
         info = {"CFBundleExecutable": "TFT Live", "CFBundleIdentifier": "local.tft.live.launcher",
                 "CFBundleName": "TFT Live", "CFBundleDisplayName": "TFT Live", "CFBundlePackageType": "APPL",
-                "CFBundleVersion": "1", "CFBundleShortVersionString": "1.0.0",
+                "CFBundleVersion": "2", "CFBundleShortVersionString": "1.0.1",
                 "LSMinimumSystemVersion": "14.0", "LSArchitecturePriority": ["arm64"],
                 "LSRequiresNativeExecution": True, "LSUIElement": True, "NSHighResolutionCapable": True}
         (contents / "Info.plist").write_bytes(plistlib.dumps(info))
-        (resources / "LIRE-MOI.txt").write_text(
-            "TFT Live pour Mac Apple Silicon, macOS 14 ou plus.\n\n"
-            "Installer le Riot Client officiel, puis ouvrir TFT Live.app.\n"
-            "Se connecter avec son compte Riot. Le serveur du compte est détecté.\n"
-            "Le lanceur installe ou met à jour TFT, puis le bouton Jouer devient utilisable.\n"
-            "Les téléchargements initiaux du jeu peuvent dépasser 10 Go.\n\n"
-            "Les composants et données personnels sont conservés dans\n"
+        (resources / "README.txt").write_text(
+            "TFT Live for Apple Silicon Macs, macOS 14 or later.\n\n"
+            "Install the official Riot Client, then open TFT Live.app.\n"
+            "Sign in with your Riot account. Your account server is detected automatically.\n"
+            "The launcher installs or updates TFT, then enables the Play button.\n"
+            "The initial game download may exceed 10 GB.\n\n"
+            "Components and personal data are stored in\n"
             "~/Library/Application Support/TFT Live\n"
-            "Le jeu est installé dans ~/Applications lorsque aucune installation compatible n'existe.\n\n"
-            "Cette application est signée localement et ne dispose pas de notarisation Apple.\n"
-            "Le moteur Python et ses licences sont inclus dans Resources/python.\n"
+            "The game is installed in ~/Applications if no compatible installation exists.\n\n"
+            "This application is ad-hoc signed and has no Apple notarization.\n"
+            "The Python runtime and its licenses are included in Resources/python.\n"
         )
         subprocess.run(["clang++", "-arch", "arm64", "-mmacosx-version-min=14.0", "-std=c++17", "-fobjc-arc",
                         "-framework", "Cocoa", str(ROOT / "app/launcher.mm"), "-o", str(contents / "MacOS/TFT Live")], check=True)
@@ -106,7 +106,7 @@ def build():
     else:
         replacement.replace(local)
     print(APP)
-    print(f"Archive partageable : {ARCHIVE.stat().st_size / 1024**2:.1f} Mio")
+    print(f"Shareable archive. {ARCHIVE.stat().st_size / 1024**2:.1f} MiB")
 
 
 if __name__ == "__main__":

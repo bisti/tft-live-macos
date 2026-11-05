@@ -16,7 +16,7 @@ def data_directory():
     if override:
         path = Path(override).expanduser()
         if not path.is_absolute():
-            raise RuntimeError("Le dossier de données doit être un chemin absolu.")
+            raise RuntimeError("The data directory must be an absolute path.")
         return path
     return Path.home() / "Library/Application Support/TFT Live"
 
@@ -65,7 +65,7 @@ def installed_riot():
                 return candidate
     except (OSError, subprocess.SubprocessError):
         pass
-    raise RuntimeError("Installe le Riot Client officiel sur ce Mac, puis ouvre TFT Live.")
+    raise RuntimeError("Install the official Riot Client on this Mac, then open TFT Live.")
 
 
 def game_path(data):
@@ -73,7 +73,7 @@ def game_path(data):
     if saved.is_file():
         path = Path(json.loads(saved.read_text())["game_path"])
         if not path.is_absolute():
-            raise RuntimeError("Le dossier d'installation TFT mémorisé est invalide.")
+            raise RuntimeError("The saved TFT installation directory is invalid.")
         return path
     candidates = [Path.home() / "Applications/Teamfight Tactics (Live).app",
                   Path("/Applications/Teamfight Tactics (Live).app")]
@@ -87,7 +87,7 @@ def decode_userinfo(value):
     if isinstance(value, str):
         value = json.loads(value)
     if not isinstance(value, dict):
-        raise RuntimeError("Riot ne fournit pas les informations de région du compte.")
+        raise RuntimeError("Riot did not provide account region information.")
     lol = value.get("lol") or {}
     region = lol.get("cpid") if isinstance(lol, dict) else None
     if not region:
@@ -98,7 +98,7 @@ def decode_userinfo(value):
             if len(selected) == 1:
                 region = selected.pop()
     if not isinstance(region, str) or not re.fullmatch(r"[A-Z0-9]{2,8}", region):
-        raise RuntimeError("La région TFT du compte n'est pas disponible.")
+        raise RuntimeError("The account TFT region is unavailable.")
     return region
 
 
@@ -108,11 +108,11 @@ def region_settings(region, configuration):
     matches = [entry for entry in configs if entry.get("id") == region
                or region in entry.get("region_data", {}).get("available_regions", [])]
     if len(matches) != 1:
-        raise RuntimeError("La configuration Riot de la région " + region + " est indisponible.")
+        raise RuntimeError("Riot configuration for region " + region + " is unavailable.")
     region = matches[0]["id"]
     version_set = configuration.get("tft.client_settings.version_sets", {}).get(region)
     if not isinstance(version_set, str) or not version_set.startswith("live-"):
-        raise RuntimeError("Riot ne propose pas de canal TFT live pour la région " + region + ".")
+        raise RuntimeError("Riot does not offer a TFT live channel for region " + region + ".")
     aliases = matches[0].get("region_data", {}).get("available_regions") or [region]
     return {"region": region, "version_set": version_set, "client_region": aliases[0], "aliases": aliases}
 

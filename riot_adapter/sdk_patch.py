@@ -5,7 +5,7 @@ import struct
 def patch_windows_sdk(path):
     data = bytearray(path.read_bytes())
     if data[:8] != struct.pack("<II", 0xfeedfacf, 0x100000c):
-        raise RuntimeError("Le SDK doit contenir uniquement la version ARM64.")
+        raise RuntimeError("The SDK must contain only the ARM64 slice.")
     sections = {}
     image_address = 0
     command = 32
@@ -25,7 +25,7 @@ def patch_windows_sdk(path):
     strings = bytes(data[string_offset:string_offset + string_size])
     windows = strings.find(b"\0windows\0")
     if windows < 0:
-        raise RuntimeError("Le SDK ne fournit pas la plateforme Windows attendue.")
+        raise RuntimeError("The SDK does not provide the expected Windows platform.")
     windows_address = string_address + windows + 1
     candidates = []
     for offset in range(text_offset, text_offset + text_size - 11, 4):
@@ -41,11 +41,11 @@ def patch_windows_sdk(path):
         if 0 <= position <= len(strings) - 4 and strings[position:position + 4] == b"mac\0":
             candidates.append((offset, address))
     if len(candidates) != 1:
-        raise RuntimeError("La fonction de plateforme du nouveau SDK ne peut pas être identifiée sans ambiguïté.")
+        raise RuntimeError("The new SDK platform function cannot be identified unambiguously.")
     offset, address = candidates[0]
     pages = ((windows_address & ~4095) - (address & ~4095)) // 4096
     if not -(1 << 20) <= pages < (1 << 20):
-        raise RuntimeError("La chaîne de plateforme du SDK est hors de portée.")
+        raise RuntimeError("The SDK platform string is out of range.")
     immediate = pages & 0x1fffff
     adrp = 0x90000000 | ((immediate & 3) << 29) | ((immediate >> 2) << 5)
     add = 0x91000000 | ((windows_address & 4095) << 10)

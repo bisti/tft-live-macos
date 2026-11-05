@@ -47,7 +47,7 @@ def write_state(data, state):
 def selected_root(root, data, state):
     selected = Path(state.get("root", root)).resolve()
     if selected != root.resolve() and not selected.is_relative_to((data / "runtimes").resolve()):
-        raise RuntimeError("Le dossier du runtime Riot est invalide.")
+        raise RuntimeError("The Riot runtime directory is invalid.")
     return selected
 
 
@@ -57,7 +57,7 @@ def quit_client(api, lockfile):
         return
     if isinstance(sessions, dict) and any(isinstance(session, dict) and session.get("productId") not in (None, "riot_client")
                                           for session in sessions.values()):
-        raise RuntimeError("Un jeu est ouvert. La mise à jour Riot sera appliquée après sa fermeture.")
+        raise RuntimeError("A game is running. The Riot update will be applied after it closes.")
     try:
         pid = int(lockfile.read_text().strip().split(":")[1])
         if pid <= 0:
@@ -84,7 +84,7 @@ def quit_client(api, lockfile):
         if not running:
             break
         if time.monotonic() >= deadline:
-            raise RuntimeError("Le client Riot doit se fermer pour appliquer sa mise à jour.")
+            raise RuntimeError("Riot Client must close to apply its update.")
         time.sleep(.5)
     time.sleep(1)
 
@@ -141,7 +141,7 @@ def official_manifest(current, data):
     configuration = official_configuration(current, data)
     manifest = configuration["keystone.self_update.manifest_url"]
     if not re.fullmatch(r"https://ks-foundation\.secure\.dyn\.riotcdn\.net/channels/public/releases/[A-Fa-f0-9]{16}\.manifest", manifest):
-        raise ValueError("Le manifeste de mise à jour Riot est invalide.")
+        raise ValueError("The Riot update manifest is invalid.")
     return manifest
 
 
@@ -176,7 +176,7 @@ def bootstrap_runtime(assets, data, installed):
         return destination
     if destination.exists():
         shutil.rmtree(destination)
-    print("Préparation des composants Apple Silicon depuis le Riot Client installé…", flush=True)
+    print("Preparing Apple Silicon components from the installed Riot Client…", flush=True)
     with tempfile.TemporaryDirectory(prefix="bootstrap-stage-", dir=data) as temporary:
         stage = Path(temporary)
         runtime = stage / RIOT_APP
@@ -240,7 +240,7 @@ def download_runtime(root, current, stage, manifest, api):
         deadline = time.monotonic() + 60
         while api("GET", "/product-session/v1/sessions", lockfile=lock)[0] != 200:
             if process.poll() is not None or time.monotonic() > deadline:
-                raise RuntimeError("Le patcher Riot isolé ne démarre pas.")
+                raise RuntimeError("The isolated Riot patcher failed to start.")
             time.sleep(.5)
         deadline = time.monotonic() + 60
         while True:
@@ -250,10 +250,10 @@ def download_runtime(root, current, stage, manifest, api):
                 break
             time.sleep(.5)
         if status not in (200, 201, 204):
-            raise RuntimeError("Le patcher Riot refuse le dossier de préparation (HTTP " + str(status) + "). " + str(error))
+            raise RuntimeError("The Riot patcher refused the staging directory (HTTP " + str(status) + "). " + str(error))
         status, _ = api("PUT", REGISTRY + "patch-requests/products/teamfighttactics/patchlines/runtime", {}, lockfile=lock)
         if status not in (200, 201, 204):
-            raise RuntimeError("Le patcher Riot refuse le téléchargement du runtime.")
+            raise RuntimeError("The Riot patcher refused the runtime download.")
         deadline = time.monotonic() + 1800
         last_progress = -1
         while time.monotonic() < deadline:
@@ -263,15 +263,15 @@ def download_runtime(root, current, stage, manifest, api):
                     return destination
                 patch = state.get("patch_status") or {}
                 if patch.get("error"):
-                    raise RuntimeError("Le téléchargement du runtime Riot a échoué.")
+                    raise RuntimeError("The Riot runtime download failed.")
                 progress = int((patch.get("progress") or {}).get("progress", 0)) // 10 * 10
                 if progress > last_progress:
-                    print("Mise à jour des composants Riot, " + str(progress) + " %", flush=True)
+                    print("Updating Riot components, " + str(progress) + " %", flush=True)
                     last_progress = progress
             if process.poll() is not None:
-                raise RuntimeError("Le patcher Riot s'est arrêté pendant le téléchargement.")
+                raise RuntimeError("The Riot patcher stopped during the download.")
             time.sleep(1)
-        raise RuntimeError("Le téléchargement du runtime Riot dépasse le délai prévu.")
+        raise RuntimeError("The Riot runtime download timed out.")
     finally:
         if process.poll() is None:
             process.terminate()
@@ -328,7 +328,7 @@ def validate_candidate(candidate, address):
     result = subprocess.run([str(candidate / HOST_PATH), "--check-sdk", format(address, "x")],
                             capture_output=True, text=True, timeout=30, check=True)
     if result.stdout.strip() != "windows":
-        raise RuntimeError("La validation Windows du nouveau SDK a échoué.")
+        raise RuntimeError("Windows validation of the new SDK failed.")
 
 
 def ensure_runtime(root, data, api):
@@ -342,18 +342,18 @@ def ensure_runtime(root, data, api):
         if manifest == state.get("manifest"):
             return current / HOST_PATH
         if manifest == state.get("rejected_manifest") and time.time() - state.get("rejected_at", 0) < 86400:
-            print("La précédente version compatible des composants Riot est conservée.", flush=True)
+            print("Keeping the previous compatible Riot components.", flush=True)
             return current / HOST_PATH
         candidate = prepare_candidate(root, current, data, manifest, api)
         quit_client(api, data / "user/Config/lockfile")
         write_state(data, {"root": str(candidate), "manifest": manifest, "pending": True,
                            "previous_root": str(current), "previous_manifest": state.get("manifest")})
-        print("Nouveaux composants Riot préparés et validés en ARM64.", flush=True)
+        print("New Riot components prepared and validated for ARM64.", flush=True)
         return candidate / HOST_PATH
     except (OSError, ValueError, KeyError, TypeError, AttributeError, IndexError, struct.error,
             RuntimeError, subprocess.SubprocessError) as error:
         if isinstance(error, IncompatibleRuntime):
             state.update(rejected_manifest=manifest, rejected_at=time.time())
             write_state(data, state)
-        print("Mise à jour Riot différée. La version compatible est conservée. " + str(error), flush=True)
+        print("Riot update deferred. Keeping the compatible version. " + str(error), flush=True)
         return current / HOST_PATH

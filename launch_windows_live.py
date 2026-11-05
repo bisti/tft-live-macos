@@ -65,24 +65,24 @@ def api(method, route, body=None, lockfile=None):
 
 def published_release(platform, version_set):
     if not re.fullmatch(r"live-[A-Z0-9]+", version_set):
-        raise ValueError("Le canal TFT demandé est invalide.")
+        raise ValueError("The requested TFT channel is invalid.")
     request = urllib.request.Request(SIEVE.format(platform=platform, version_set=version_set), headers={"User-Agent": "TFT-Live-Launcher/1.0"})
     with urllib.request.urlopen(request, timeout=15) as response:
         releases = json.load(response).get("releases", [])
     if len(releases) != 1:
-        raise ValueError("Le canal " + version_set + " ne désigne pas une version unique.")
+        raise ValueError("Channel " + version_set + " does not identify a unique release.")
     release = releases[0]
     labels = release["release"]["labels"]
     if labels["riot:platform"]["values"] != [platform] or labels["riot:artifact_type_id"]["values"] != ["client"]:
-        raise ValueError("La version publiée ne correspond pas au client demandé.")
+        raise ValueError("The published release does not match the requested client.")
     version = labels["riot:artifact_version_id"]["values"]
     if len(version) != 1 or not version[0] or release["compat_version"]["id"] != version[0]:
-        raise ValueError("La version publiée et sa compatibilité sont incohérentes.")
+        raise ValueError("The published release and its compatibility version do not match.")
     url = release["download"]["url"]
     if not re.fullmatch(r"https://teamfighttactics\.secure\.dyn\.riotcdn\.net/channels/public/releases/[A-Fa-f0-9]{16}\.manifest", url):
-        raise ValueError("Le manifeste TFT ne provient pas du canal officiel attendu.")
+        raise ValueError("The TFT manifest is not from the expected official channel.")
     if release["download"].get("scd_required"):
-        raise ValueError("Le manifeste TFT nécessite un accès privé.")
+        raise ValueError("The TFT manifest requires private access.")
     return url, version[0]
 
 
@@ -92,7 +92,7 @@ def live_release(version_set):
         with ThreadPoolExecutor(max_workers=2) as pool:
             mac, windows = list(pool.map(lambda platform: published_release(platform, version_set), ["macos", "windows"]))
         if mac[1] != windows[1]:
-            raise ValueError("Le déploiement Mac et Windows de " + version_set + " est encore désynchronisé.")
+            raise ValueError("The Mac and Windows releases for " + version_set + " are still out of sync.")
         return mac
     except (OSError, ValueError, KeyError, IndexError, TypeError, AttributeError):
         return None
@@ -137,18 +137,18 @@ def update_game(target):
             url = (state.get("configuration") or {}).get("patch_url")
             if target and url and url != target:
                 raise RuntimeError(
-                    "Le composant Riot ouvert vise une autre version que le live. "
-                    "Ferme la fenêtre Riot (et TFT), puis relance TFT Live.")
+                    "The running Riot component targets a different release from live. "
+                    "Close Riot and TFT, then reopen TFT Live.")
             combined = state.get("combined_patch_state")
             if combined == "up_to_date":
                 if requested:
-                    print("Mise à jour terminée.", flush=True)
+                    print("Update complete.", flush=True)
                 return
             if combined in ("out_of_date", "not_installed") and not requested:
-                print("Installation ou mise à jour de TFT vers la version live…", flush=True)
+                print("Installing or updating TFT to the live release…", flush=True)
                 status, _ = api("PUT", PATCH_REQUEST, {})
                 if status not in (200, 201, 204):
-                    raise RuntimeError("Le composant Riot refuse la mise à jour (HTTP " + str(status) + ").")
+                    raise RuntimeError("The Riot component refused the update (HTTP " + str(status) + ").")
                 requested = True
                 deadline = time.monotonic() + 600
                 time.sleep(.2)
@@ -167,14 +167,14 @@ def update_game(target):
                     last_activity = activity
             elif combined == "bad_install_path" and time.monotonic() - started > 30:
                 # Right after a path change Riot briefly reports not_installed while it re-verifies.
-                raise RuntimeError("Le composant Riot ne reconnaît pas l'installation TFT (" + combined + ").")
+                raise RuntimeError("The Riot component does not recognize the TFT installation (" + combined + ").")
             error = (state.get("patch_status") or {}).get("error")
             if requested and state.get("user_cancelled_patching"):
-                raise RuntimeError("L'installation TFT a été interrompue. Rouvre TFT Live pour la reprendre.")
+                raise RuntimeError("TFT installation was interrupted. Reopen TFT Live to resume.")
             if requested and error:
-                raise RuntimeError("La mise à jour de TFT a échoué : " + json.dumps(error)[:200])
+                raise RuntimeError("TFT update failed. " + json.dumps(error)[:200])
         if time.monotonic() >= deadline:
-            raise RuntimeError("La mise à jour de TFT ne progresse plus. Relance TFT Live.")
+            raise RuntimeError("The TFT update has stopped progressing. Reopen TFT Live.")
         time.sleep(2)
 
 
@@ -187,8 +187,8 @@ def close_normal_client():
         isinstance(session, dict) and session.get("productId") not in (None, "riot_client")
         for session in sessions.values()
     ):
-        raise RuntimeError("Un jeu est ouvert depuis le Riot Client habituel. Ferme-le, puis relance TFT Live.")
-    print("Fermeture du Riot Client habituel...", flush=True)
+        raise RuntimeError("A game is running from the regular Riot Client. Close it, then reopen TFT Live.")
+    print("Closing the regular Riot Client…", flush=True)
     api("POST", "/process-control/v1/process/quit", lockfile=NORMAL_LOCK)
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
@@ -196,7 +196,7 @@ def close_normal_client():
         if api("GET", SESSIONS, lockfile=NORMAL_LOCK)[0] != 200:
             time.sleep(2)  # let it release its ports and files
             return
-    raise RuntimeError("Le Riot Client habituel ne s'est pas fermé. Ferme-le, puis relance TFT Live.")
+    raise RuntimeError("The regular Riot Client did not close. Close it, then reopen TFT Live.")
 
 
 def tft_is_running(sessions):
@@ -217,31 +217,31 @@ def connect_riot(host):
     deadline = time.monotonic() + 600
     while time.monotonic() < deadline:
         if process is not None and process.poll() is not None:
-            raise RuntimeError("Le composant de connexion Riot s'est arrêté au démarrage (code " + str(process.returncode) + ").")
+            raise RuntimeError("The Riot sign-in component stopped during startup (exit code " + str(process.returncode) + ").")
         status, authorization = api("GET", "/rso-auth/v1/authorization/access-token")
         if status == 200 and isinstance(authorization, dict):
             encoded = authorization.get("token", "").split(".")
             if len(encoded) != 3:
-                raise RuntimeError("La session Riot ne fournit pas de jeton reconnu.")
+                raise RuntimeError("The Riot session did not provide a recognized token.")
             claims = json.loads(base64.urlsafe_b64decode(encoded[1] + "=" * (-len(encoded[1]) % 4)))
             if claims.get("plt", {}).get("id") != "windows":
-                raise RuntimeError("La session Riot obtenue n'est pas reconnue comme Windows.")
+                raise RuntimeError("The Riot session is not recognized as Windows.")
             return
         time.sleep(1)
-    raise RuntimeError("Connexion Riot en attente. Reconnecte-toi puis relance TFT Live.")
+    raise RuntimeError("Riot sign-in is still pending. Sign in again, then reopen TFT Live.")
 
 
 def account_region(current):
     status, userinfo = api("GET", "/rso-auth/v1/authorization/userinfo")
     if status != 200 or not isinstance(userinfo, dict):
-        raise RuntimeError("La région du compte Riot connecté n'est pas disponible.")
+        raise RuntimeError("The signed-in Riot account region is unavailable.")
     try:
         region = launcher_config.decode_userinfo(userinfo.get("userInfo"))
     except RuntimeError:
         status, election = api("GET", "/riot-client-lifecycle/v1/league-region-election")
         selected = election.get("selectedRegions", []) if status == 200 and isinstance(election, dict) else []
         if len(selected) != 1 or not isinstance(selected[0], str) or not re.fullmatch(r"[A-Z0-9]{2,8}", selected[0]):
-            raise RuntimeError("Termine le choix du serveur dans Riot, puis rouvre TFT Live.")
+            raise RuntimeError("Finish selecting a server in Riot, then reopen TFT Live.")
         region = selected[0]
     configuration = launcher_config.cached_configuration(DATA)
     if configuration is None:
@@ -257,12 +257,12 @@ def main():
         try:
             fcntl.flock(launch_lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            print("Un lancement de TFT est déjà en cours.")
+            print("TFT launch is already in progress.")
             return 0
 
         _, sessions = api("GET", SESSIONS)
         if tft_is_running(sessions):
-            print("TFT est déjà ouvert. Les mises à jour seront vérifiées au prochain lancement.", flush=True)
+            print("TFT is already running. Updates will be checked on the next launch.", flush=True)
             return 0
         launcher_config.prepare_files(ROOT, DATA)
         legacy = ROOT / "sdk-host-data"
@@ -281,14 +281,14 @@ def main():
             state = riot_runtime.read_state(DATA)
         current = riot_runtime.selected_root(base, DATA, state)
         riot_runtime.wire_configuration(current, DATA)
-        print("Connecte-toi dans Riot pour préparer TFT live.", flush=True)
+        print("Sign in to Riot to prepare TFT live.", flush=True)
         connect_riot(current / riot_runtime.HOST_PATH)
         settings = account_region(current)
         release = live_release(settings["version_set"])
         if release is None:
-            raise RuntimeError("Impossible de confirmer la version TFT active pour " + settings["region"] + ". Réessaie plus tard.")
+            raise RuntimeError("Unable to confirm the current TFT release for " + settings["region"] + ". Try again later.")
         target, version = release
-        print("Version live " + settings["region"] + " — " + version, flush=True)
+        print("Live version " + settings["region"] + " — " + version, flush=True)
         changed = launcher_config.configure_region(DATA, settings, target, version)
         status, patch = api("GET", PATCH_STATE)
         loaded = (patch.get("configuration") or {}) if status == 200 and isinstance(patch, dict) else {}
@@ -303,15 +303,15 @@ def main():
                 raise
             riot_runtime.quit_client(api, LOCK)
             previous = riot_runtime.rollback(base, DATA)
-            print("Retour automatique aux composants Riot précédents. " + str(error), flush=True)
+            print("Automatically restored the previous Riot components. " + str(error), flush=True)
             connect_riot(previous)
         riot_runtime.confirm(DATA)
         if account_region(current)["region"] != settings["region"]:
-            raise RuntimeError("Le compte Riot a changé pendant la préparation. Rouvre TFT Live pour sélectionner son serveur.")
+            raise RuntimeError("The Riot account changed during setup. Reopen TFT Live to select its server.")
 
         _, sessions = api("GET", SESSIONS)
         if tft_is_running(sessions):
-            print("Riot est prêt. TFT est déjà ouvert avec la session Windows.", flush=True)
+            print("Riot is ready. TFT is already running with the Windows session.", flush=True)
             return 0
 
         GAME.parent.mkdir(parents=True, exist_ok=True)
@@ -326,13 +326,13 @@ def main():
                 break
             time.sleep(.5)
         if status not in (200, 201, 204):
-            raise RuntimeError("Impossible de référencer l'installation TFT existante.")
+            raise RuntimeError("Unable to register the existing TFT installation.")
 
         update_game(target)
         if not (GAME / "Contents/MacOS/TFTClient-Mac-Shipping").is_file():
-            raise RuntimeError("Le patcher Riot n'a pas installé le client TFT Mac attendu.")
+            raise RuntimeError("The Riot patcher did not install the expected TFT Mac client.")
 
-        print("Riot est prêt. Clique sur Jouer dans le client pour lancer TFT live.", flush=True)
+        print("Riot is ready. Click Play in the client to launch TFT live.", flush=True)
         return 0
 
 

@@ -118,7 +118,7 @@ class RuntimeStateTests(unittest.TestCase):
         original = {"root": str(self.root), "manifest": "old"}
         riot_runtime.write_state(self.data, original)
         with patch.object(riot_runtime, "official_manifest", return_value="new"), \
-             patch.object(riot_runtime, "prepare_candidate", side_effect=riot_runtime.IncompatibleRuntime("SDK inconnu")) as prepare:
+             patch.object(riot_runtime, "prepare_candidate", side_effect=riot_runtime.IncompatibleRuntime("Unknown SDK")) as prepare:
             for _ in range(2):
                 self.assertEqual(riot_runtime.ensure_runtime(self.root, self.data, None), self.root / riot_runtime.HOST_PATH)
         self.assertEqual(prepare.call_count, 1)
@@ -222,7 +222,7 @@ class ManualLaunchTests(unittest.TestCase):
                 self.assertEqual(launcher.main(), 0)
                 update.assert_called_once_with("manifest")
                 self.assertEqual(connect.call_count, 2)
-                self.assertEqual(output.getvalue().count("Connecte-toi dans Riot pour préparer TFT live."), 1)
+                self.assertEqual(output.getvalue().count("Sign in to Riot to prepare TFT live."), 1)
 
 
 if __name__ == "__main__":

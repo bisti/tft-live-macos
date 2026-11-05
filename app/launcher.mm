@@ -25,7 +25,7 @@ static NSString *dataPath() {
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable backing:NSBackingStoreBuffered defer:NO];
     self.window.title = @"TFT Live";
     [self.window center];
-    self.status = [NSTextField wrappingLabelWithString:@"Préparation du client Riot…"];
+    self.status = [NSTextField wrappingLabelWithString:@"Preparing Riot Client…"];
     self.status.frame = NSMakeRect(28, 48, 424, 60);
     self.status.font = [NSFont systemFontOfSize:14];
     [self.window.contentView addSubview:self.status];
@@ -37,10 +37,10 @@ static NSString *dataPath() {
     [self.window makeKeyAndOrderFront:nil];
     self.pending = [NSMutableData data];
     NSError *error = nil;
-    if (!dataPath().isAbsolutePath) { [self showFailure:@"Le dossier de données doit être un chemin absolu."]; return; }
+    if (!dataPath().isAbsolutePath) { [self showFailure:@"The data directory must be an absolute path."]; return; }
     if (![NSFileManager.defaultManager createDirectoryAtPath:dataPath() withIntermediateDirectories:YES
         attributes:@{NSFilePosixPermissions: @0700} error:&error]) {
-        [self showFailure:@"Impossible de créer le dossier personnel de TFT Live."];
+        [self showFailure:@"Unable to create the TFT Live user data directory."];
         return;
     }
     NSString *logPath = [dataPath() stringByAppendingPathComponent:@"launcher.log"];
@@ -48,7 +48,7 @@ static NSString *dataPath() {
         [NSFileManager.defaultManager createFileAtPath:logPath contents:nil attributes:@{NSFilePosixPermissions: @0600}];
     }
     NSFileHandle *output = [NSFileHandle fileHandleForWritingAtPath:logPath];
-    if (!output) { [self showFailure:@"Impossible d'ouvrir le journal de TFT Live."]; return; }
+    if (!output) { [self showFailure:@"Unable to open the TFT Live log."]; return; }
     unsigned long long start = [output seekToEndOfFile];
     self.reader = [NSFileHandle fileHandleForReadingAtPath:logPath];
     [self.reader seekToFileOffset:start];
@@ -66,12 +66,12 @@ static NSString *dataPath() {
             [launcher readProgress];
             [launcher.reader closeFile];
             if (task.terminationStatus == 0) [NSApp terminate:nil];
-            else [launcher showFailure:launcher.lastLine ?: @"La préparation n'a pas abouti."];
+            else [launcher showFailure:launcher.lastLine ?: @"Setup did not complete."];
         });
     };
     if (![self.task launchAndReturnError:&error]) {
         [output closeFile];
-        [self showFailure:@"Le moteur intégré de TFT Live ne peut pas démarrer."];
+        [self showFailure:@"The bundled TFT Live runtime failed to start."];
         return;
     }
     [output closeFile];
@@ -90,9 +90,9 @@ static NSString *dataPath() {
         NSString *value = [line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         if (!value.length) continue;
         self.lastLine = value;
-        if ([value hasPrefix:@"Préparation"] || [value hasPrefix:@"Connecte-toi"] || [value hasPrefix:@"Serveur du compte"]
-            || [value hasPrefix:@"Version live"] || [value hasPrefix:@"Installation"] || [value hasPrefix:@"Mise à jour"]
-            || [value hasPrefix:@"Nouveaux composants"] || [value hasPrefix:@"Riot est prêt"] || [value hasSuffix:@" %"]) {
+        if ([value hasPrefix:@"Preparing"] || [value hasPrefix:@"Sign in"] || [value hasPrefix:@"Closing"]
+            || [value hasPrefix:@"Live version"] || [value hasPrefix:@"Installing"] || [value hasPrefix:@"Updating"] || [value hasPrefix:@"Update complete"]
+            || [value hasPrefix:@"New Riot components"] || [value hasPrefix:@"Riot is ready"] || [value hasSuffix:@" %"]) {
             self.status.stringValue = value;
         }
     }
@@ -101,7 +101,7 @@ static NSString *dataPath() {
     [self.spinner stopAnimation:nil];
     self.spinner.hidden = YES;
     self.status.stringValue = message;
-    NSButton *button = [NSButton buttonWithTitle:@"Fermer" target:NSApp action:@selector(terminate:)];
+    NSButton *button = [NSButton buttonWithTitle:@"Close" target:NSApp action:@selector(terminate:)];
     button.frame = NSMakeRect(370, 15, 85, 30);
     [self.window.contentView addSubview:button];
     [NSApp activateIgnoringOtherApps:YES];
