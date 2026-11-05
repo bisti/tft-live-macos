@@ -1,6 +1,7 @@
 import json
 import io
 import os
+import plistlib
 from pathlib import Path
 import struct
 import tempfile
@@ -79,6 +80,63 @@ class RegionTests(unittest.TestCase):
 
 
 class InstallationTests(unittest.TestCase):
+    def test_host_fixes_reach_cached_runtimes_and_are_not_reapplied(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            assets = root / "assets"
+            assets.mkdir()
+            (assets / "SDKHost").write_bytes(b"fixed host")
+            current = root / "runtime"
+            host = current / riot_runtime.HOST_PATH
+            host.parent.mkdir(parents=True)
+            host.write_bytes(b"old host")
+            with patch.object(riot_runtime, "quit_client") as quit_client, \
+                 patch.object(riot_runtime.subprocess, "run") as run:
+                riot_runtime.refresh_host(assets, current, root, None)
+                self.assertEqual(host.read_bytes(), b"fixed host")
+                quit_client.assert_called_once()
+                self.assertEqual(run.call_count, 2)
+                quit_client.reset_mock()
+                run.reset_mock()
+                riot_runtime.refresh_host(assets, current, root, None)
+                quit_client.assert_not_called()
+                run.assert_not_called()
+                host.write_bytes(b"interrupted replacement")
+                riot_runtime.refresh_host(assets, current, root, None)
+                self.assertEqual(host.read_bytes(), b"fixed host")
+                quit_client.assert_called_once()
+
+    def test_legacy_watcher_is_removed_only_for_the_private_host(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            data = home / "Library/Application Support/TFT Live"
+            path = home / "Library/LaunchAgents/com.riot.riotclient.checkinstalls.plist"
+            path.parent.mkdir(parents=True)
+            for executable, owned in [(home / "Riot Client.app/Contents/MacOS/RiotClientServices", False),
+                                      (data / "bootstrap" / riot_runtime.HOST_PATH, True)]:
+                with self.subTest(owned=owned):
+                    path.write_bytes(plistlib.dumps({"ProgramArguments": [str(executable), "--agent"]}))
+                    with patch.object(Path, "home", return_value=home), \
+                         patch.object(riot_runtime.subprocess, "run") as run:
+                        run.return_value.returncode = 113
+                        self.assertEqual(riot_runtime.remove_install_watcher(data), owned)
+                        self.assertEqual(path.exists(), not owned)
+                        self.assertEqual(run.call_count, 2 if owned else 0)
+
+    def test_loaded_watcher_is_preserved_when_unloading_fails(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            home = Path(temporary)
+            data = home / "data"
+            path = home / "Library/LaunchAgents/com.riot.riotclient.checkinstalls.plist"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(plistlib.dumps({"ProgramArguments": [str(data / "bootstrap" / riot_runtime.HOST_PATH)]}))
+            with patch.object(Path, "home", return_value=home), \
+                 patch.object(riot_runtime.subprocess, "run") as run:
+                run.return_value.returncode = 0
+                with self.assertRaisesRegex(RuntimeError, "watcher"):
+                    riot_runtime.remove_install_watcher(data)
+            self.assertTrue(path.is_file())
+
     def test_system_configuration_is_generated_from_the_installed_client(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

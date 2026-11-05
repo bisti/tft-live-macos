@@ -145,8 +145,11 @@ class RuntimeStateTests(unittest.TestCase):
         candidate = self.data / "runtimes/1234567890ABCDEF"
         candidate.mkdir()
         (candidate / "sdk-ready.json").write_text(json.dumps({"manifest": manifest, "address": 512}))
-        with patch.object(riot_runtime, "validate_candidate") as validate, patch.object(riot_runtime, "download_runtime") as download:
+        with patch.object(riot_runtime, "validate_candidate") as validate, \
+             patch.object(riot_runtime, "refresh_host") as refresh, \
+             patch.object(riot_runtime, "download_runtime") as download:
             self.assertEqual(riot_runtime.prepare_candidate(self.root, self.root, self.data, manifest, None), candidate)
+        refresh.assert_called_once_with(self.root, candidate, self.data, None)
         validate.assert_called_once_with(candidate, 512)
         download.assert_not_called()
 
@@ -215,6 +218,8 @@ class ManualLaunchTests(unittest.TestCase):
                  patch.object(launcher.launcher_config, "prepare_files"), \
                  patch.object(launcher.launcher_config, "configure_region", return_value=False), \
                  patch.object(launcher.riot_runtime, "wire_configuration"), \
+                 patch.object(launcher.riot_runtime, "refresh_host"), \
+                 patch.object(launcher.riot_runtime, "remove_install_watcher", return_value=False), \
                  patch.object(launcher, "account_region", return_value={"region":"NA1", "version_set":"live-NA1"}), \
                  patch.object(launcher, "live_release", return_value=("manifest", "version")), \
                  patch.object(launcher, "connect_riot") as connect, patch.object(launcher, "update_game") as update, \

@@ -1,5 +1,6 @@
 """Stage official Riot updates, validate ARM64 compatibility, and switch atomically."""
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -169,6 +170,48 @@ def wire_configuration(directory, data):
             path.symlink_to(target)
 
 
+def remove_install_watcher(data):
+    """Remove the legacy launch agent only when it targets our private host."""
+    path = Path.home() / "Library/LaunchAgents/com.riot.riotclient.checkinstalls.plist"
+    if not path.is_file():
+        return False
+    agent = plistlib.loads(path.read_bytes())
+    arguments = agent.get("ProgramArguments", [])
+    if not arguments or not isinstance(arguments[0], str):
+        return False
+    executable = Path(arguments[0]).resolve()
+    if not executable.is_relative_to(data.resolve()) or executable.parts[-4:] != HOST_PATH.parts[-4:]:
+        return False
+    service = "gui/" + str(os.getuid()) + "/com.riot.riotclient.checkinstalls"
+    subprocess.run(["launchctl", "bootout", service], capture_output=True)
+    remaining = subprocess.run(["launchctl", "print", service], capture_output=True)
+    if remaining.returncode == 0:
+        raise RuntimeError("Unable to stop the legacy TFT installation watcher. Reopen TFT Live to retry.")
+    path.unlink()
+    return True
+
+
+def refresh_host(assets, current, data, api):
+    """Propagate launcher fixes to previously prepared Riot runtimes."""
+    source = assets / "SDKHost"
+    if not source.is_file():
+        source = assets / HOST_PATH
+    host = current / HOST_PATH
+    marker = current / "host-source.json"
+    source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    recorded = json.loads(marker.read_text()) if marker.is_file() else {}
+    if recorded == {"source": source_digest, "installed": hashlib.sha256(host.read_bytes()).hexdigest()}:
+        return
+    quit_client(api, data / "user/Config/lockfile")
+    temporary = host.with_suffix(".new")
+    shutil.copy2(source, temporary)
+    temporary.replace(host)
+    subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(host.parents[2])], check=True)
+    subprocess.run(["codesign", "--verify", "--deep", "--strict", str(host.parents[2])], check=True)
+    from launcher_config import atomic_json
+    atomic_json(marker, {"source": source_digest, "installed": hashlib.sha256(host.read_bytes()).hexdigest()})
+
+
 def bootstrap_runtime(assets, data, installed):
     destination = data / "bootstrap"
     if (destination / "bootstrap-ready.json").is_file():
@@ -290,6 +333,7 @@ def prepare_candidate(root, current, data, manifest, api):
     if marker.is_file():
         ready = json.loads(marker.read_text())
         if ready.get("manifest") == manifest:
+            refresh_host(current, candidate, data, api)
             validate_candidate(candidate, ready["address"])
             return candidate
     if candidate.exists():

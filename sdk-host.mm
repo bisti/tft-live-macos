@@ -54,6 +54,7 @@ int main(int argc, char **argv) {
             return 1;
         }
         static std::vector<std::string> settings = {
+            "--disable-launch-agent",
             "--app-root=" + riotApp,
             "--user-data-root=" + data + "/user",
             "--data-root=" + data + "/shared",

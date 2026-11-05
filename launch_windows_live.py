@@ -260,10 +260,13 @@ def main():
             print("TFT launch is already in progress.")
             return 0
 
+        removed_watcher = riot_runtime.remove_install_watcher(DATA)
         _, sessions = api("GET", SESSIONS)
         if tft_is_running(sessions):
             print("TFT is already running. Updates will be checked on the next launch.", flush=True)
             return 0
+        if removed_watcher:
+            riot_runtime.quit_client(api, LOCK)
         launcher_config.prepare_files(ROOT, DATA)
         legacy = ROOT / "sdk-host-data"
         if not (DATA / "user").exists() and (legacy / "user").is_dir() and legacy.resolve() != DATA.resolve():
@@ -280,6 +283,7 @@ def main():
             riot_runtime.rollback(base, DATA)
             state = riot_runtime.read_state(DATA)
         current = riot_runtime.selected_root(base, DATA, state)
+        riot_runtime.refresh_host(ROOT, current, DATA, api)
         riot_runtime.wire_configuration(current, DATA)
         print("Sign in to Riot to prepare TFT live.", flush=True)
         connect_riot(current / riot_runtime.HOST_PATH)
@@ -303,6 +307,7 @@ def main():
                 raise
             riot_runtime.quit_client(api, LOCK)
             previous = riot_runtime.rollback(base, DATA)
+            riot_runtime.refresh_host(ROOT, previous.parents[3], DATA, api)
             print("Automatically restored the previous Riot components. " + str(error), flush=True)
             connect_riot(previous)
         riot_runtime.confirm(DATA)
