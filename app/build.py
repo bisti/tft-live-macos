@@ -28,12 +28,12 @@ def build():
         resources = contents / "Resources"
         code = resources / "code"
         (contents / "MacOS").mkdir(parents=True)
-        (code / "standalone").mkdir(parents=True)
+        (code / "riot_adapter").mkdir(parents=True)
         for name in ["launch_windows_live.py", "launcher_config.py", "riot_runtime.py",
                      "riot-sdk-host-override.json"]:
             shutil.copy2(ROOT / name, code / name)
         for name in ["apple_silicon.py", "sdk_patch.py"]:
-            shutil.copy2(ROOT / "standalone" / name, code / "standalone" / name)
+            shutil.copy2(ROOT / "riot_adapter" / name, code / "riot_adapter" / name)
         shutil.copy2(ROOT / "TFT SDK Host arm64.app/Contents/MacOS/SDKHost", code / "SDKHost")
         cached = Path(os.environ.get("TFT_PYTHON_ARCHIVE", "/private/tmp/tft-python-arm64.tar.gz"))
         if cached.is_file() and hashlib.sha256(cached.read_bytes()).hexdigest() == PYTHON_SHA256:
@@ -73,7 +73,7 @@ def build():
             "Le moteur Python et ses licences sont inclus dans Resources/python.\n"
         )
         subprocess.run(["clang++", "-arch", "arm64", "-mmacosx-version-min=14.0", "-std=c++17", "-fobjc-arc",
-                        "-framework", "Cocoa", str(ROOT / "portable/launcher.mm"), "-o", str(contents / "MacOS/TFT Live")], check=True)
+                        "-framework", "Cocoa", str(ROOT / "app/launcher.mm"), "-o", str(contents / "MacOS/TFT Live")], check=True)
         subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(app)], check=True)
         subprocess.run(["codesign", "--verify", "--deep", "--strict", str(app)], check=True)
         if APP.exists():

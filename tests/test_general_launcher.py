@@ -10,7 +10,7 @@ from unittest.mock import patch
 import launcher_config as configuration
 import launch_windows_live as launcher
 import riot_runtime
-from standalone.apple_silicon import thin_binary
+from riot_adapter.apple_silicon import thin_binary
 
 
 def region_configuration():

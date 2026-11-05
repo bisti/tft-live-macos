@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import launch_windows_live as launcher
 import riot_runtime
-from standalone.sdk_patch import patch_windows_sdk
+from riot_adapter.sdk_patch import patch_windows_sdk
 
 
 def release(platform="macos", version="live-version", manifest="1234567890ABCDEF"):

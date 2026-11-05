@@ -59,7 +59,7 @@ pour compiler les deux petits exécutables ARM64.
 
 ```sh
 python3 build_arm64_host.py
-python3 portable/build.py
+python3 app/build.py
 ```
 
 La sortie comprend `dist/TFT Live.app`, `dist/TFT-Live-AppleSilicon.zip` et son

@@ -13,8 +13,8 @@ import time
 import urllib.parse
 import urllib.request
 
-from standalone.apple_silicon import thin_tree
-from standalone.sdk_patch import patch_windows_sdk
+from riot_adapter.apple_silicon import thin_tree
+from riot_adapter.sdk_patch import patch_windows_sdk
 
 
 HOST_PATH = Path("TFT SDK Host arm64.app/Contents/MacOS/SDKHost")
