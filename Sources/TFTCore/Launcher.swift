@@ -76,8 +76,10 @@ public final class Launcher {
                         "Finish selecting a server in Riot, then reopen TFT Live.")
             region = selected[0]
         }
-        let config = try configuration.cachedConfiguration() ?? runtime.officialConfiguration(current)
-        return try regionSettings(region, configuration: config)
+        if let cached = try configuration.cachedConfiguration(), let settings = try? regionSettings(region, configuration: cached) {
+            return settings
+        }
+        return try regionSettings(region, configuration: runtime.officialConfiguration(current))
     }
     public func liveRelease(_ region: Region) throws -> Release {
         // Both publications must agree before a regional release can be selected.
@@ -170,22 +172,10 @@ public final class Launcher {
         try require(lock >= 0, "Unable to open the launcher lock.")
         defer { flock(lock, LOCK_UN); close(lock) }
         if flock(lock, LOCK_EX | LOCK_NB) != 0 { report("TFT launch is already in progress."); return }
-        let removedWatcher = try runtime.removeInstallWatcher()
         if gameIsRunning(api("GET", sessionRoute).json) { report("TFT is already running. Updates will be checked on the next launch."); return }
-        if removedWatcher { try runtime.quit() }
         try configuration.prepareFiles()
-        let legacyRoots = [configuration.assets, URL(fileURLWithPath: FileManager.default.currentDirectoryPath)]
-        let legacy = legacyRoots.map { $0.appendingPathComponent("sdk-host-data") }.first {
-            exists($0.appendingPathComponent("user")) && resolved($0) != resolved(configuration.data)
-        }
-        if !exists(configuration.data.appendingPathComponent("user")), let legacy {
-            try runtime.quit(legacy.appendingPathComponent("user/Config/lockfile"))
-            for name in ["user", "shared"] where exists(legacy.appendingPathComponent(name)) {
-                try clone(legacy.appendingPathComponent(name), configuration.data.appendingPathComponent(name))
-            }
-        }
         var state = try runtime.state()
-        if text(state["root"]).isEmpty && !exists(configuration.bootstrap.appendingPathComponent("bootstrap-ready.json")) { _ = try runtime.bootstrap() }
+        if text(state["root"]).isEmpty && !exists(configuration.initialRuntime.appendingPathComponent("runtime.json")) { _ = try runtime.prepareRuntime() }
         if state["pending"] as? Bool == true { try runtime.quit(); _ = try runtime.rollback(); state = try runtime.state() }
         let current = try runtime.ensureHealthy(runtime.selectedRoot(state))
         try runtime.wire(current)

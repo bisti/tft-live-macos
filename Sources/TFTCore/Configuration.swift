@@ -28,11 +28,8 @@ public struct Configuration {
         }
     }
     public var lockfile: URL { data.appendingPathComponent("user/Config/lockfile") }
-    public var bootstrap: URL { data.appendingPathComponent("bootstrap") }
-    public var hostSource: URL {
-        let packaged = assets.appendingPathComponent("SDKHost")
-        return exists(packaged) ? packaged : assets.appendingPathComponent(hostRelativePath)
-    }
+    public var initialRuntime: URL { data.appendingPathComponent("seed") }
+    public var hostSource: URL { assets.appendingPathComponent("SDKHost") }
     public func installedRiot() throws -> URL {
         let home = FileManager.default.homeDirectoryForCurrentUser
         var paths = [URL(fileURLWithPath: "/Users/Shared/Riot Games/Riot Client.app"),

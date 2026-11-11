@@ -1,4 +1,4 @@
-# Public source allowlist. Builds, Riot components, profiles and logs stay local.
+# Source, resources, documentation and native build tools.
 /*
 !/.gitignore
 !/README.md
@@ -7,14 +7,9 @@
 !/Package.swift
 !/build.sh
 !/test.sh
-!/build_arm64_host.py
-!/launch_windows_live.py
-!/launch-tft-live.sh
-!/riot-sdk-host-override.json
-!/app/
-/app/*
-!/app/build.py
 !/Sources/
+!/Tests/
+!/Resources/
 /Sources/**
 !/Sources/TFTCore/
 !/Sources/SDKHost/
@@ -24,7 +19,8 @@
 !/Sources/SDKHost/*.swift
 !/Sources/TFTLiveCLI/*.swift
 !/Sources/TFTLiveApp/*.swift
-!/Tests/
 /Tests/**
 !/Tests/TFTCoreTests/
 !/Tests/TFTCoreTests/*.swift
+/Resources/*
+!/Resources/riot-sdk-host-override.json

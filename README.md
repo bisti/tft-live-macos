@@ -40,10 +40,9 @@ New Riot runtime versions are staged separately and validated before activation.
 Failed validation triggers a rollback to the previous version. Compatibility
 depends on changes to Riot components and services.
 
-The private components are named `Riot Runtime.app`. Existing installations are
-migrated automatically. Signed UI files are shared using hard links within each
-runtime. The active runtime and its previous version are retained. Older prepared
-versions, including the bootstrap once superseded, are removed automatically.
+The private components are named `Riot Runtime.app`. Signed UI files are shared
+using hard links within each runtime. The active runtime and its previous version are retained. Older prepared
+versions, including the initial runtime once superseded, are removed automatically.
 
 A new runtime is confirmed after account-region checks and successful preparation
 of the TFT installation. Setup failures restore the previous runtime and retry
@@ -74,17 +73,14 @@ Building requires Swift 6 or later and Apple developer tools on an Apple Silicon
 ```
 
 The output includes `dist/TFT Live.app`, `dist/TFT-Live-AppleSilicon.zip`, and its
-SHA-256 checksum. A local copy of the application is also created at the project root.
+SHA-256 checksum. Build output is contained in `dist/`.
 
 The interface, command-line launcher, SDK host, configuration, runtime updates,
 repair, logging, and ARM64 component adaptation are implemented in Swift.
 The application uses the Swift libraries provided by macOS.
 
-The former Python launch and build commands remain as small compatibility wrappers
-that forward to the native executables or the shell build script.
-
-To launch from a terminal, use `./launch-tft-live.sh`. To see preparation output
-directly, run `./TFT\ Live.app/Contents/MacOS/TFTLiveCLI`.
+Open `dist/TFT Live.app` to launch the local build. To see preparation output in a terminal,
+run `"./dist/TFT Live.app/Contents/MacOS/TFTLiveCLI"`.
 
 Riot components and resources are prepared on each user's machine from their
 installation or from Riot services.
@@ -97,10 +93,10 @@ installation or from Riot services.
 
 The Swift Testing suite covers regional configuration, published release matching,
 ARM64 SDK adaptation, preparation checks, rollback, transactional replacement,
-log rotation, and legacy state compatibility. The test script locates the testing
+log rotation, and runtime metadata. The test script locates the testing
 framework supplied by Xcode or the Apple command-line tools.
 
-The optional integration test prepares components from the installed Riot Client,
+The optional integration test uses the application built in `dist/`. It prepares components from the installed Riot Client,
 removes and repairs the SDK and UI, starts a headless Swift host, and downloads
 a current Riot runtime. It requires network access and temporary disk space.
 
@@ -108,9 +104,8 @@ a current Riot runtime. It requires network access and temporary disk space.
 TFT_NATIVE_INTEGRATION=1 ./test.sh --filter IntegrationTests
 ```
 
-An actual game launch and matches were previously verified on EUW1. Published
-release metadata for all 15 live regions advertised by Riot was checked during
-earlier validation. Matches in other regions still need testing.
+End-to-end preparation is checked on EUW1. Regional configuration and matching
+live releases are obtained from Riot services.
 
 ## License and third-party components
 

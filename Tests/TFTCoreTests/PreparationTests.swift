@@ -4,7 +4,7 @@ import Testing
 
 final class PreparationTests: TemporaryTests {
     func fixture(patch: @escaping () -> JSON, messages: @escaping (String) -> Void = { _ in }) throws -> Launcher {
-        let config = try Configuration(assets: repository, data: directory)
+        let config = try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory)
         try atomicJSON(["game_path": directory.appendingPathComponent("Game.app").path], to: directory.appendingPathComponent("install.json"))
         _ = try file("Game.app/Contents/MacOS/TFTClient-Mac-Shipping")
         _ = try file("user/Config/ClientConfiguration.json", jsonData(["public": [["updateTime": 1, "data": regionalConfiguration()]]]))

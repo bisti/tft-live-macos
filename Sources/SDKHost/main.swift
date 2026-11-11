@@ -9,8 +9,7 @@ typealias PlatformGetter = @convention(c) () -> UnsafePointer<CChar>?
 func runHost() throws -> Int32 {
     let root = resolved(Bundle.main.bundleURL).deletingLastPathComponent()
     let sdk = root.appendingPathComponent("sdk-windows-override-arm64/RiotGamesApi.framework/RiotGamesApi")
-    var riot = root.appendingPathComponent("Riot Runtime.app")
-    if !exists(riot) { riot = root.appendingPathComponent("Riot Windows Auth Test.app") }
+    let riot = root.appendingPathComponent(riotAppName)
     let data = resolved(root.appendingPathComponent("sdk-host-data"))
     let arguments = CommandLine.arguments
     let checking = arguments.count == 3 && arguments[1] == "--check-sdk"

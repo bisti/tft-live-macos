@@ -5,14 +5,13 @@ import Testing
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["TFT_NATIVE_INTEGRATION"] == "1"))
 final class IntegrationTests: TemporaryTests {
     @Test func nativePreparationRepairAndRuntimeDownload() throws {
-        let config = try Configuration(assets: repository, data: directory)
+        let config = try Configuration(assets: repository.appendingPathComponent("dist/TFT Live.app/Contents/Resources"), data: directory)
         try config.prepareFiles()
         let runtime = RiotRuntime(config)
         let source = try config.installedRiot()
-        let current = try runtime.bootstrap(source: source)
+        let current = try runtime.prepareRuntime(source: source)
         try runtime.writeState(["root": current.path])
-        let ready = try readJSON(current.appendingPathComponent("bootstrap-ready.json"))
-        let address = (ready["address"] as! NSNumber).uint64Value
+        let address = try RuntimeMetadata.read(from: current).address
         try runtime.validate(current, address: address)
         let sentinel = directory.appendingPathComponent("user/sentinel")
         try makeDirectory(sentinel.deletingLastPathComponent())

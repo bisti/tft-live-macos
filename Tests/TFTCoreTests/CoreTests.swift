@@ -21,6 +21,13 @@ class TemporaryTests {
 }
 
 final class SupportTests: TemporaryTests {
+    @Test func runtimeMetadataHasOneTypedFormat() throws {
+        let metadata = RuntimeMetadata(address: 512, manifest: "manifest")
+        try metadata.write(to: directory)
+        #expect(try RuntimeMetadata.read(from: directory) == metadata)
+        try atomicJSON(["manifest": "manifest"], to: directory.appendingPathComponent("runtime.json"))
+        #expect(throws: (any Error).self) { try RuntimeMetadata.read(from: directory) }
+    }
     @Test func testAtomicJSONRetainsNullAndUnicode() throws {
         let path = directory.appendingPathComponent("state.json")
         try atomicJSON(["value": "聯盟", "empty": NSNull()], to: path)
@@ -109,8 +116,8 @@ final class RegionTests: TemporaryTests {
         #expect(throws: (any Error).self) { try regionSettings("KR", configuration: config) }
     }
     @Test func testOverrideReplacesManifestAndRegionalConfiguration() throws {
-        let config = try Configuration(assets: repository, data: directory)
-        try clone(repository.appendingPathComponent("riot-sdk-host-override.json"), directory.appendingPathComponent("riot-sdk-host-override.json"))
+        let config = try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory)
+        try clone(repository.appendingPathComponent("Resources/riot-sdk-host-override.json"), directory.appendingPathComponent("riot-sdk-host-override.json"))
         let region = try regionSettings("KR", configuration: regionalConfiguration())
         #expect(try config.configureRegion(region, manifest: "new-manifest", version: "new-version"))
         #expect(!(try config.configureRegion(region, manifest: "new-manifest", version: "new-version")))
@@ -124,7 +131,7 @@ final class RegionTests: TemporaryTests {
         }
     }
     @Test func testSavedGamePathIsReusedAndRelativePathsFail() throws {
-        let config = try Configuration(assets: repository, data: directory)
+        let config = try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory)
         try atomicJSON(["game_path": directory.appendingPathComponent("Game.app").path], to: directory.appendingPathComponent("install.json"))
         #expect((try config.gamePath()) == (directory.appendingPathComponent("Game.app")))
         try atomicJSON(["game_path": "relative/Game.app"], to: directory.appendingPathComponent("install.json"))
@@ -136,7 +143,7 @@ final class RegionTests: TemporaryTests {
         var latest = regionalConfiguration()
         latest["marker"] = "latest"
         try atomicJSON(["public": [["updateTime": 1, "data": regionalConfiguration()], ["updateTime": 2, "data": latest]]], to: path)
-        #expect((text(try Configuration(assets: repository, data: directory).cachedConfiguration()?["marker"])) == ("latest"))
+        #expect((text(try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory).cachedConfiguration()?["marker"])) == ("latest"))
     }
 }
 
@@ -180,7 +187,7 @@ final class PublicationTests: TemporaryTests {
         #expect(throws: (any Error).self) { try publishedRelease(platform: "macos", channel: "pbe-KR") { _ in Issue.record("Unexpected request"); return [:] } }
     }
     @Test func testMismatchedMacAndWindowsReleasesFail() throws {
-        let config = try Configuration(assets: repository, data: directory)
+        let config = try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory)
         let runtime = RiotRuntime(config, api: { _, _, _, _ in HTTPResult(0) }, fetch: { url in
             ["releases": [publication(url.absoluteString.contains("=windows") ? "windows" : "macos", version: url.absoluteString.contains("=windows") ? "new" : "old")]]
         })
@@ -195,8 +202,8 @@ final class RuntimeStateTests: TemporaryTests {
     var candidate: URL!
     override init() throws {
         try super.init()
-        manager = RiotRuntime(try Configuration(assets: repository, data: directory), api: { _, _, _, _ in HTTPResult(0) }, report: { _ in })
-        current = directory.appendingPathComponent("bootstrap")
+        manager = RiotRuntime(try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory), api: { _, _, _, _ in HTTPResult(0) }, report: { _ in })
+        current = directory.appendingPathComponent("seed")
         candidate = directory.appendingPathComponent("runtimes/1234567890ABCDEF")
         try makeDirectory(current)
         try makeDirectory(candidate)
@@ -243,7 +250,7 @@ final class RuntimeStateTests: TemporaryTests {
         #expect((try manager.state()["pending"]) == nil)
     }
     @Test func testRunningGamePreventsShutdown() throws {
-        let runtime = RiotRuntime(try Configuration(assets: repository, data: directory), api: { method, _, _, _ in
+        let runtime = RiotRuntime(try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory), api: { method, _, _, _ in
             #expect((method) == ("GET"))
             return HTTPResult(200, ["game": ["productId": "teamfighttactics"]])
         })
@@ -251,16 +258,16 @@ final class RuntimeStateTests: TemporaryTests {
     }
     @Test func testConfigurationLinksMoveToTheNewProfile() throws {
         try manager.wire(current)
-        let other = try Configuration(assets: repository, data: directory.appendingPathComponent("new-profile"))
+        let other = try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory.appendingPathComponent("new-profile"))
         try RiotRuntime(other).wire(current)
         #expect((resolved(current.appendingPathComponent("sdk-host-data"))) == (resolved(other.data)))
     }
-    @Test func testCleanupRetainsCurrentAndPreviousAndRemovesObsoleteBootstrap() throws {
+    @Test func cleanupRetainsCurrentAndPreviousRuntimes() throws {
         let previous = directory.appendingPathComponent("runtimes/previous")
         for root in [current!, previous, candidate!] {
             try makeDirectory(root.appendingPathComponent(hostRelativePath).deletingLastPathComponent())
             try Data().write(to: root.appendingPathComponent(hostRelativePath))
-            try atomicJSON([:], to: root.appendingPathComponent("sdk-ready.json"))
+            try atomicJSON([:], to: root.appendingPathComponent("runtime.json"))
         }
         try manager.writeState(["root": candidate.path, "previous_root": previous.path, "pending": false])
         try manager.confirm()

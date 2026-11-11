@@ -4,9 +4,9 @@ import TFTCore
 
 let executable = URL(fileURLWithPath: CommandLine.arguments[0]).standardizedFileURL
 let bundledAssets = executable.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Resources")
-let assets = exists(bundledAssets.appendingPathComponent("SDKHost")) ? bundledAssets : URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
 do {
-    let configuration = try Configuration(assets: assets)
+    try require(exists(bundledAssets.appendingPathComponent("SDKHost")), "Run TFT Live.app or build it with ./build.sh.")
+    let configuration = try Configuration(assets: bundledAssets)
     if CommandLine.arguments.contains("--self-check") {
         let value: JSON = ["architecture": "arm64", "implementation": "swift", "data_directory": configuration.data.path,
                            "bundled_host": exists(configuration.hostSource), "installed_riot": try configuration.installedRiot().path]
@@ -19,7 +19,7 @@ do {
         try Launcher(configuration, runtime: runtime).run()
     }
 } catch {
-    if CommandLine.arguments.contains("--log-output"), let config = try? Configuration(assets: assets) {
+    if CommandLine.arguments.contains("--log-output"), let config = try? Configuration(assets: bundledAssets) {
         try? makeDirectory(config.data)
         RotatingLog(config.data.appendingPathComponent("launcher.log")).line(error.localizedDescription)
     }
