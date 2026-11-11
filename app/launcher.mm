@@ -1,4 +1,5 @@
 #import <Cocoa/Cocoa.h>
+#include "../rotating_log.h"
 
 static NSString *resources() { return NSBundle.mainBundle.resourcePath; }
 static NSString *pythonPath() { return [resources() stringByAppendingPathComponent:@"python/bin/python3"]; }
@@ -47,11 +48,13 @@ static NSString *dataPath() {
     if (![NSFileManager.defaultManager fileExistsAtPath:logPath]) {
         [NSFileManager.defaultManager createFileAtPath:logPath contents:nil attributes:@{NSFilePosixPermissions: @0600}];
     }
-    NSFileHandle *output = [NSFileHandle fileHandleForWritingAtPath:logPath];
-    if (!output) { [self showFailure:@"Unable to open the TFT Live log."]; return; }
-    unsigned long long start = [output seekToEndOfFile];
-    self.reader = [NSFileHandle fileHandleForReadingAtPath:logPath];
-    [self.reader seekToFileOffset:start];
+    if (!appendRotatingLog(logPath.fileSystemRepresentation, "", 0)) {
+        [self showFailure:@"Unable to open the TFT Live log."]; return;
+    }
+    NSPipe *output = [NSPipe pipe];
+    self.reader = output.fileHandleForReading;
+    int descriptor = self.reader.fileDescriptor;
+    fcntl(descriptor, F_SETFL, fcntl(descriptor, F_GETFL) | O_NONBLOCK);
     self.task = [[NSTask alloc] init];
     self.task.executableURL = [NSURL fileURLWithPath:pythonPath()];
     self.task.arguments = @[@"-I", @"-B", @"-u", [resources() stringByAppendingPathComponent:@"code/launch_windows_live.py"]];
@@ -70,15 +73,20 @@ static NSString *dataPath() {
         });
     };
     if (![self.task launchAndReturnError:&error]) {
-        [output closeFile];
         [self showFailure:@"The bundled TFT Live runtime failed to start."];
         return;
     }
-    [output closeFile];
     self.timer = [NSTimer scheduledTimerWithTimeInterval:0.2 target:self selector:@selector(readProgress) userInfo:nil repeats:YES];
 }
 - (void)readProgress {
-    [self.pending appendData:[self.reader readDataToEndOfFile]];
+    char buffer[8192];
+    while (true) {
+        ssize_t count = read(self.reader.fileDescriptor, buffer, sizeof(buffer));
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) break;
+        appendRotatingLog([dataPath() stringByAppendingPathComponent:@"launcher.log"].fileSystemRepresentation, buffer, count);
+        [self.pending appendBytes:buffer length:count];
+    }
     NSString *text = [[NSString alloc] initWithData:self.pending encoding:NSUTF8StringEncoding];
     if (!text.length) return;
     NSRange ending = [text rangeOfString:@"\n" options:NSBackwardsSearch];
@@ -90,7 +98,7 @@ static NSString *dataPath() {
         NSString *value = [line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
         if (!value.length) continue;
         self.lastLine = value;
-        if ([value hasPrefix:@"Preparing"] || [value hasPrefix:@"Sign in"] || [value hasPrefix:@"Closing"]
+        if ([value hasPrefix:@"Preparing"] || [value hasPrefix:@"Repairing"] || [value hasPrefix:@"Sign in"] || [value hasPrefix:@"Closing"]
             || [value hasPrefix:@"Live version"] || [value hasPrefix:@"Installing"] || [value hasPrefix:@"Updating"] || [value hasPrefix:@"Update complete"]
             || [value hasPrefix:@"New Riot components"] || [value hasPrefix:@"Riot is ready"] || [value hasSuffix:@" %"]) {
             self.status.stringValue = value;

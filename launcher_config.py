@@ -11,6 +11,42 @@ import subprocess
 LIVE_PATCHLINE = "keystone.products.teamfighttactics.patchlines.live"
 
 
+def trim_log(path, limit):
+    if path.stat().st_size > limit:
+        with path.open("r+b") as output:
+            output.seek(-limit, os.SEEK_END)
+            tail = output.read(limit)
+            output.seek(0)
+            output.write(tail)
+            output.truncate()
+
+
+def rotate_log(path, limit=10 * 1024 * 1024):
+    """Rotate the shell launcher's log before its output descriptor is opened."""
+    if not path.is_file() or path.stat().st_size < limit:
+        return
+    trim_log(path, limit)
+    for index in range(3, 0, -1):
+        source = path if index == 1 else path.with_name(path.name + "." + str(index - 1))
+        if source.exists():
+            source.replace(path.with_name(path.name + "." + str(index)))
+
+
+def prune_logs(data):
+    """Retain three closed Riot log files per folder before starting a host."""
+    root = data / "logs"
+    groups = {}
+    for path in root.rglob("*.log"):
+        if path.is_file() and not path.is_symlink() and path.resolve().is_relative_to(root.resolve()):
+            groups.setdefault(path.parent, []).append(path)
+    for paths in groups.values():
+        for index, path in enumerate(sorted(paths, key=lambda path: path.stat().st_mtime_ns, reverse=True)):
+            if index < 3:
+                trim_log(path, 10 * 1024 * 1024)
+            else:
+                path.unlink()
+
+
 def data_directory():
     override = os.environ.get("TFT_LIVE_DATA_DIR")
     if override:

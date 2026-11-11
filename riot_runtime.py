@@ -244,18 +244,109 @@ def refresh_host(assets, current, data, api):
     marker = current / "host-source.json"
     source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
     recorded = json.loads(marker.read_text()) if marker.is_file() else {}
-    if recorded == {"source": source_digest, "installed": hashlib.sha256(host.read_bytes()).hexdigest(), "layout": 3}:
+    installed_digest = hashlib.sha256(host.read_bytes()).hexdigest() if host.is_file() else None
+    if recorded == {"source": source_digest, "installed": installed_digest, "layout": 3}:
         return
     quit_client(api, data / "user/Config/lockfile")
     legacy = current / LEGACY_RIOT_APP
     if legacy.is_dir() and not (current / RIOT_APP).exists():
         legacy.replace(current / RIOT_APP)
     temporary = host.with_suffix(".new")
+    host.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(source, temporary)
     temporary.replace(host)
     share_interface(current)
     from launcher_config import atomic_json
     atomic_json(marker, {"source": source_digest, "installed": hashlib.sha256(host.read_bytes()).hexdigest(), "layout": 3})
+
+
+def component_fingerprint(current):
+    """Detect changed or missing resources without rehashing large binaries."""
+    digest = hashlib.sha256()
+    for name in (RIOT_APP, "sdk-windows-override-arm64/RiotGamesApi.framework", str(HOST_PATH.parents[2])):
+        bundle = current / name
+        for path in [bundle] + sorted(bundle.rglob("*")):
+            info = path.lstat()
+            entry = [str(path.relative_to(current)), info.st_mode, info.st_size, info.st_mtime_ns, info.st_ctime_ns]
+            if path.is_symlink():
+                entry.append(os.readlink(path))
+            digest.update(json.dumps(entry).encode())
+    return digest.hexdigest()
+
+
+def record_health(current, address):
+    from launcher_config import atomic_json
+    atomic_json(current / "runtime-health.json", {"address": address, "fingerprint": component_fingerprint(current)})
+
+
+def ensure_healthy(assets, current, data, api):
+    """Validate cached components and rebuild damaged bundles transactionally."""
+    backup = current.with_name(current.name + ".repair-backup")
+    if not current.exists() and backup.is_dir():
+        backup.replace(current)
+    try:
+        refresh_host(assets, current, data, api)
+        marker = current / "sdk-ready.json"
+        if not marker.exists():
+            marker = current / "bootstrap-ready.json"
+        ready = json.loads(marker.read_text())
+        fingerprint = component_fingerprint(current)
+        health = current / "runtime-health.json"
+        try:
+            recorded = json.loads(health.read_text()) if health.is_file() else {}
+        except ValueError:
+            recorded = {}
+        if recorded != {"address": ready["address"], "fingerprint": fingerprint}:
+            validate_candidate(current, ready["address"])
+    except (OSError, ValueError, KeyError, TypeError, RuntimeError, subprocess.SubprocessError):
+        pass
+    else:
+        if recorded != {"address": ready["address"], "fingerprint": fingerprint}:
+            record_health(current, ready["address"])
+        if backup.is_dir() and not backup.is_symlink():
+            shutil.rmtree(backup)
+        return current
+
+    quit_client(api, data / "user/Config/lockfile")
+    print("Repairing Riot components…", flush=True)
+    runtime = current / RIOT_APP
+    verified = subprocess.run(["codesign", "--verify", "--deep", "--strict", str(runtime)], capture_output=True)
+    same_version = verified.returncode == 0
+    from launcher_config import installed_riot
+    source = runtime if same_version else installed_riot()
+    destination = current if same_version else data / "bootstrap"
+    backup = destination.with_name(destination.name + ".repair-backup")
+    with tempfile.TemporaryDirectory(prefix="repair-stage-", dir=data) as temporary:
+        repaired = bootstrap_runtime(assets, Path(temporary), source)
+        ready = json.loads((repaired / "bootstrap-ready.json").read_text())
+        state = read_state(data)
+        manifest = state.get("manifest") if state.get("root") and Path(state["root"]).resolve() == current.resolve() else None
+        if not manifest and re.fullmatch(r"[A-Fa-f0-9]{16}", current.name):
+            manifest = "https://ks-foundation.secure.dyn.riotcdn.net/channels/public/releases/" + current.name + ".manifest"
+        if same_version and manifest:
+            (repaired / "sdk-ready.json").write_text(json.dumps({"manifest": manifest, "address": ready["address"]}))
+        wire_configuration(repaired, data)
+        refresh_host(assets, repaired, data, api)
+        validate_candidate(repaired, ready["address"])
+        if backup.exists():
+            shutil.rmtree(backup)
+        if destination.exists():
+            destination.replace(backup)
+        try:
+            repaired.replace(destination)
+            validate_candidate(destination, ready["address"])
+            record_health(destination, ready["address"])
+            if not same_version:
+                write_state(data, {"root": str(destination), "manifest": None})
+        except Exception:
+            if destination.exists():
+                shutil.rmtree(destination)
+            if backup.exists():
+                backup.replace(destination)
+            raise
+        if backup.exists():
+            shutil.rmtree(backup)
+    return destination
 
 
 def bootstrap_runtime(assets, data, installed):
@@ -376,11 +467,16 @@ def prepare_candidate(root, current, data, manifest, api):
     candidate = releases / Path(urllib.parse.urlsplit(manifest).path).stem
     marker = candidate / "sdk-ready.json"
     if marker.is_file():
-        ready = json.loads(marker.read_text())
-        if ready.get("manifest") == manifest:
-            refresh_host(current, candidate, data, api)
-            validate_candidate(candidate, ready["address"])
-            return candidate
+        try:
+            ready = json.loads(marker.read_text())
+            if ready.get("manifest") == manifest:
+                refresh_host(current, candidate, data, api)
+                validate_candidate(candidate, ready["address"])
+                return candidate
+        except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError):
+            pass
+    if candidate.resolve() == current.resolve():
+        raise RuntimeError("The active Riot runtime cannot be replaced while preparing an update.")
     if candidate.exists():
         shutil.rmtree(candidate)
     with tempfile.TemporaryDirectory(prefix="runtime-stage-", dir=data) as temporary:

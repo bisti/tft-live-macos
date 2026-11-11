@@ -211,6 +211,7 @@ def connect_riot(host):
     if api("GET", SESSIONS)[0] != 200:
         close_normal_client()
         sync_install_setting()
+        launcher_config.prune_logs(DATA)
         with (DATA / "host-console.log").open("ab") as console:
             process = subprocess.Popen([str(host)], stdin=subprocess.DEVNULL,
                                        stdout=console, stderr=subprocess.STDOUT, start_new_session=True)
@@ -249,6 +250,42 @@ def account_region(current):
     return launcher_config.region_settings(region, configuration)
 
 
+def prepare_game(current, settings, target):
+    """Validate the account and prepare the complete TFT installation."""
+    if account_region(current)["region"] != settings["region"]:
+        raise RuntimeError("The Riot account changed during setup. Reopen TFT Live to select its server.")
+
+    _, sessions = api("GET", SESSIONS)
+    if tft_is_running(sessions):
+        return True
+
+    GAME.parent.mkdir(parents=True, exist_ok=True)
+    launcher_config.atomic_json(DATA / "install.json", {"game_path": str(GAME)})
+    deadline = time.monotonic() + 30
+    while True:
+        status, _ = api(
+            "PUT", "/rnet-product-registry/v4/products/teamfighttactics/patchlines/live/install-path",
+            {"root_path": str(GAME.parent), "full_path": str(GAME)},
+        )
+        if status != 404 or time.monotonic() >= deadline:
+            break
+        time.sleep(.5)
+    if status not in (200, 201, 204):
+        raise RuntimeError("Unable to register the existing TFT installation.")
+
+    update_game(target)
+    status, patch = api("GET", PATCH_STATE)
+    patch = patch if status == 200 and isinstance(patch, dict) else {}
+    configuration = patch.get("configuration") or {}
+    if (configuration.get("patch_url") != target or configuration.get("id") != settings["region"]
+            or patch.get("combined_patch_state") != "up_to_date"):
+        raise RuntimeError("TFT preparation did not confirm the requested live release and server.")
+    if not (GAME / "Contents/MacOS/TFTClient-Mac-Shipping").is_file():
+        raise RuntimeError("The Riot patcher did not install the expected TFT Mac client.")
+
+    return False
+
+
 def main():
     os.umask(0o077)
     DATA.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -283,7 +320,7 @@ def main():
             riot_runtime.rollback(base, DATA)
             state = riot_runtime.read_state(DATA)
         current = riot_runtime.selected_root(base, DATA, state)
-        riot_runtime.refresh_host(ROOT, current, DATA, api)
+        current = riot_runtime.ensure_healthy(ROOT, current, DATA, api)
         riot_runtime.wire_configuration(current, DATA)
         print("Sign in to Riot to prepare TFT live.", flush=True)
         connect_riot(current / riot_runtime.HOST_PATH)
@@ -302,42 +339,22 @@ def main():
 
         try:
             connect_riot(host)
+            running = prepare_game(host.parents[3], settings, target)
         except (RuntimeError, OSError, ValueError) as error:
             if not riot_runtime.read_state(DATA).get("pending"):
                 raise
             riot_runtime.quit_client(api, LOCK)
             previous = riot_runtime.rollback(base, DATA)
-            riot_runtime.refresh_host(ROOT, previous.parents[3], DATA, api)
+            restored = riot_runtime.ensure_healthy(ROOT, previous.parents[3], DATA, api)
+            previous = restored / riot_runtime.HOST_PATH
             print("Automatically restored the previous Riot components. " + str(error), flush=True)
             connect_riot(previous)
+            running = prepare_game(restored, settings, target)
         riot_runtime.confirm(DATA)
-        if account_region(current)["region"] != settings["region"]:
-            raise RuntimeError("The Riot account changed during setup. Reopen TFT Live to select its server.")
-
-        _, sessions = api("GET", SESSIONS)
-        if tft_is_running(sessions):
+        if running:
             print("Riot is ready. TFT is already running with the Windows session.", flush=True)
-            return 0
-
-        GAME.parent.mkdir(parents=True, exist_ok=True)
-        launcher_config.atomic_json(DATA / "install.json", {"game_path": str(GAME)})
-        deadline = time.monotonic() + 30
-        while True:
-            status, _ = api(
-                "PUT", "/rnet-product-registry/v4/products/teamfighttactics/patchlines/live/install-path",
-                {"root_path": str(GAME.parent), "full_path": str(GAME)},
-            )
-            if status != 404 or time.monotonic() >= deadline:
-                break
-            time.sleep(.5)
-        if status not in (200, 201, 204):
-            raise RuntimeError("Unable to register the existing TFT installation.")
-
-        update_game(target)
-        if not (GAME / "Contents/MacOS/TFTClient-Mac-Shipping").is_file():
-            raise RuntimeError("The Riot patcher did not install the expected TFT Mac client.")
-
-        print("Riot is ready. Click Play in the client to launch TFT live.", flush=True)
+        else:
+            print("Riot is ready. Click Play in the client to launch TFT live.", flush=True)
         return 0
 
 

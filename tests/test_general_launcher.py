@@ -250,6 +250,159 @@ class InstallationTests(unittest.TestCase):
             kill.assert_not_called()
 
 
+class RuntimeRepairTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.data = Path(self.temporary.name).resolve()
+        self.current = self.data / "runtimes/current"
+        self.make_components(self.current)
+        (self.current / "sdk-ready.json").write_text(json.dumps({"manifest": "old", "address": 512}))
+        riot_runtime.write_state(self.data, {"root": str(self.current), "manifest": "old"})
+        self.user = self.data / "user/session"
+        self.user.parent.mkdir()
+        self.user.write_text("preserved")
+
+    def make_components(self, directory):
+        for name in (riot_runtime.RIOT_APP, "sdk-windows-override-arm64/RiotGamesApi.framework",
+                     str(riot_runtime.HOST_PATH.parents[2])):
+            path = directory / name / "resource"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"original")
+
+    def rebuilt(self, assets, data, source):
+        self.assertEqual(source, self.current / riot_runtime.RIOT_APP)
+        directory = data / "bootstrap"
+        self.make_components(directory)
+        (directory / "bootstrap-ready.json").write_text(json.dumps({"address": 768}))
+        return directory
+
+    def test_unchanged_components_reuse_validation_and_changed_files_are_checked(self):
+        with patch.object(riot_runtime, "refresh_host"), patch.object(riot_runtime, "validate_candidate") as validate:
+            riot_runtime.ensure_healthy(self.data, self.current, self.data, None)
+            validate.assert_called_once()
+            validate.reset_mock()
+            backup = self.current.with_name("current.repair-backup")
+            backup.mkdir()
+            (backup / "leftover").touch()
+            riot_runtime.ensure_healthy(self.data, self.current, self.data, None)
+            validate.assert_not_called()
+            self.assertFalse(backup.exists())
+            resource = self.current / riot_runtime.RIOT_APP / "resource"
+            info = resource.stat()
+            resource.write_bytes(b"modified")
+            os.utime(resource, ns=(info.st_atime_ns, info.st_mtime_ns))
+            riot_runtime.ensure_healthy(self.data, self.current, self.data, None)
+            validate.assert_called_once()
+
+    def test_missing_sdk_is_rebuilt_and_personal_data_is_preserved(self):
+        import shutil
+        shutil.rmtree(self.current / "sdk-windows-override-arm64")
+        with patch.object(riot_runtime, "refresh_host"), patch.object(riot_runtime, "quit_client"), \
+             patch.object(riot_runtime.subprocess, "run") as run, \
+             patch.object(riot_runtime, "bootstrap_runtime", side_effect=self.rebuilt), \
+             patch.object(riot_runtime, "validate_candidate"):
+            run.return_value.returncode = 0
+            self.assertEqual(riot_runtime.ensure_healthy(self.data, self.current, self.data, None), self.current)
+        self.assertTrue((self.current / "sdk-windows-override-arm64/RiotGamesApi.framework/resource").exists())
+        self.assertEqual(json.loads((self.current / "sdk-ready.json").read_text())["manifest"], "old")
+        self.assertEqual(riot_runtime.read_state(self.data)["manifest"], "old")
+        self.assertEqual(self.user.read_text(), "preserved")
+        self.assertFalse(self.current.with_name("current.repair-backup").exists())
+
+    def test_failed_replacement_restores_the_original_directory(self):
+        import shutil
+        shutil.rmtree(self.current / "sdk-windows-override-arm64")
+        with patch.object(riot_runtime, "refresh_host"), patch.object(riot_runtime, "quit_client"), \
+             patch.object(riot_runtime.subprocess, "run") as run, \
+             patch.object(riot_runtime, "bootstrap_runtime", side_effect=self.rebuilt), \
+             patch.object(riot_runtime, "validate_candidate", side_effect=[None, RuntimeError("verification failed")]):
+            run.return_value.returncode = 0
+            with self.assertRaisesRegex(RuntimeError, "verification failed"):
+                riot_runtime.ensure_healthy(self.data, self.current, self.data, None)
+        self.assertEqual(json.loads((self.current / "sdk-ready.json").read_text())["address"], 512)
+        self.assertEqual(self.user.read_text(), "preserved")
+
+    def test_damaged_source_runtime_reboots_from_the_official_installation(self):
+        installed = self.data / "Official Riot.app"
+        def rebuilt(assets, data, source):
+            self.assertEqual(source, installed)
+            directory = data / "bootstrap"
+            self.make_components(directory)
+            (directory / "bootstrap-ready.json").write_text(json.dumps({"address": 768}))
+            return directory
+        with patch.object(riot_runtime, "refresh_host"), patch.object(riot_runtime, "quit_client"), \
+             patch.object(riot_runtime.subprocess, "run") as run, \
+             patch.object(configuration, "installed_riot", return_value=installed), \
+             patch.object(riot_runtime, "bootstrap_runtime", side_effect=rebuilt), \
+             patch.object(riot_runtime, "validate_candidate", side_effect=[RuntimeError("damaged source"), None, None]):
+            run.return_value.returncode = 1
+            repaired = riot_runtime.ensure_healthy(self.data, self.current, self.data, None)
+        self.assertEqual(repaired, self.data / "bootstrap")
+        self.assertEqual(riot_runtime.read_state(self.data), {"root": str(repaired), "manifest": None})
+        self.assertEqual(self.user.read_text(), "preserved")
+
+
+class LogRotationTests(unittest.TestCase):
+    def test_riot_session_logs_keep_the_three_newest_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary)
+            logs = data / "logs/Riot Client Logs"
+            logs.mkdir(parents=True)
+            for index in range(7):
+                path = logs / (str(index) + ".log")
+                path.write_text(str(index))
+                os.utime(path, ns=(index + 1, index + 1))
+            external = data / "unrelated.log"
+            external.write_text("preserved")
+            (logs / "linked.log").symlink_to(external)
+            configuration.prune_logs(data)
+            self.assertEqual({path.name for path in logs.iterdir()}, {"4.log", "5.log", "6.log", "linked.log"})
+            self.assertEqual(external.read_text(), "preserved")
+
+    def test_native_logs_are_bounded_with_concurrent_writers(self):
+        import subprocess
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "log-test.cpp"
+            binary = root / "log-test"
+            source.write_text('''#include "rotating_log.h"
+int main(int argc, char **argv) {
+    std::string message(64, argv[2][0]);
+    for (int index = 0; index < std::stoi(argv[3]); ++index) {
+        if (!appendRotatingLog(argv[1], message.data(), message.size(), 128)) return 1;
+    }
+    return 0;
+}
+''')
+            subprocess.run(["clang++", "-std=c++17", "-I", str(launcher.ROOT), str(source), "-o", str(binary)], check=True)
+            path = root / "console.log"
+            path.write_bytes(b"old" * 1024)
+            subprocess.run([str(binary), str(path), "A", "4"], check=True)
+            self.assertEqual(path.with_name("console.log.2").stat().st_size, 128)
+            writers = [subprocess.Popen([str(binary), str(path), letter, "30"]) for letter in "BCDE"]
+            for writer in writers:
+                self.assertEqual(writer.wait(timeout=10), 0)
+            logs = [path] + [path.with_name("console.log." + str(index)) for index in range(1, 4)]
+            for log in logs:
+                contents = log.read_bytes()
+                self.assertEqual(len(contents), 128)
+                for offset in (0, 64):
+                    self.assertEqual(len(set(contents[offset:offset + 64])), 1)
+            self.assertFalse(path.with_name("console.log.4").exists())
+
+    def test_shell_log_keeps_three_bounded_archives(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "launcher.log"
+            for index in range(6):
+                path.write_bytes(bytes([index]) * 512)
+                configuration.rotate_log(path, limit=128)
+            self.assertFalse(path.exists())
+            self.assertEqual(path.with_name("launcher.log.1").read_bytes(), bytes([5]) * 128)
+            self.assertEqual(path.with_name("launcher.log.3").read_bytes(), bytes([3]) * 128)
+            self.assertFalse(path.with_name("launcher.log.4").exists())
+
+
 class NativeSliceTests(unittest.TestCase):
     def test_arm64_extraction_does_not_require_developer_tools(self):
         for wide in [False, True]:

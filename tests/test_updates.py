@@ -176,6 +176,17 @@ class RuntimeStateTests(unittest.TestCase):
         self.assertFalse(obsolete.exists())
         riot_runtime.confirm(self.data)
 
+    def test_corrupt_cached_update_is_downloaded_again(self):
+        manifest = "https://ks-foundation.secure.dyn.riotcdn.net/channels/public/releases/1234567890ABCDEF.manifest"
+        candidate = self.data / "runtimes/1234567890ABCDEF"
+        candidate.mkdir()
+        (candidate / "sdk-ready.json").write_text("invalid JSON")
+        with patch.object(riot_runtime, "download_runtime", side_effect=RuntimeError("fresh download")) as download:
+            with self.assertRaisesRegex(RuntimeError, "fresh download"):
+                riot_runtime.prepare_candidate(self.root, self.root, self.data, manifest, None)
+        download.assert_called_once()
+        self.assertFalse(candidate.exists())
+
     def test_cleanup_preserves_bootstrap_during_first_activation(self):
         bootstrap = self.data / "bootstrap"
         bootstrap.mkdir()
@@ -234,10 +245,42 @@ class SDKPatchTests(unittest.TestCase):
             self.assertEqual(sdk.read_bytes(), original)
 
 
+class GamePreparationTests(unittest.TestCase):
+    def test_ready_state_requires_the_requested_release_server_and_executable(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            data = Path(temporary)
+            game = data / "Game.app"
+            executable = game / "Contents/MacOS/TFTClient-Mac-Shipping"
+            executable.parent.mkdir(parents=True)
+            executable.touch()
+            settings = {"region": "NA1"}
+            expected = {"combined_patch_state": "up_to_date", "configuration": {"id": "NA1", "patch_url": "manifest"}}
+            response = expected
+            def api(method, route, body=None, **kwargs):
+                if route == launcher.SESSIONS:
+                    return 200, {}
+                if route == launcher.PATCH_STATE:
+                    return 200, response
+                return 201, None
+            with patch.object(launcher, "DATA", data), patch.object(launcher, "GAME", game), \
+                 patch.object(launcher, "account_region", return_value=settings), \
+                 patch.object(launcher, "update_game"), patch.object(launcher, "api", side_effect=api):
+                self.assertFalse(launcher.prepare_game(data, settings, "manifest"))
+                for response in ({}, {"combined_patch_state": "updating", "configuration": expected["configuration"]},
+                                 {"combined_patch_state": "up_to_date", "configuration": {"id": "EUW1", "patch_url": "manifest"}},
+                                 {"combined_patch_state": "up_to_date", "configuration": {"id": "NA1", "patch_url": "other"}}):
+                    with self.assertRaisesRegex(RuntimeError, "requested live release and server"):
+                        launcher.prepare_game(data, settings, "manifest")
+                response = expected
+                executable.unlink()
+                with self.assertRaisesRegex(RuntimeError, "expected TFT Mac client"):
+                    launcher.prepare_game(data, settings, "manifest")
+
+
 class ManualLaunchTests(unittest.TestCase):
     def test_preparation_never_launches_the_game(self):
         with tempfile.TemporaryDirectory() as temporary:
-            data = Path(temporary)
+            data = Path(temporary).resolve()
             (data / "user").mkdir()
             current = data / "runtimes/current"
             current.mkdir(parents=True)
@@ -252,26 +295,59 @@ class ManualLaunchTests(unittest.TestCase):
                 self.assertNotIn("product-launcher", route)
                 if route == launcher.SESSIONS:
                     return 200, {}
+                if route == launcher.PATCH_STATE:
+                    return 200, {"combined_patch_state": "up_to_date", "configuration": {"id": "NA1", "patch_url": "manifest"}}
                 return 201, None
 
             with patch.object(launcher, "DATA", data), \
                  patch.object(launcher, "GAME", game), patch.object(launcher, "api", side_effect=api), \
-                 patch.object(launcher.riot_runtime, "ensure_runtime", return_value=host), \
-                 patch.object(launcher.riot_runtime, "confirm"), \
+                 patch.object(launcher.riot_runtime, "ensure_runtime", return_value=host) as ensure, \
+                 patch.object(launcher.riot_runtime, "confirm") as confirm, \
                  patch.object(launcher.launcher_config, "prepare_files"), \
                  patch.object(launcher.launcher_config, "configure_region", return_value=False), \
                  patch.object(launcher.riot_runtime, "wire_configuration"), \
-                 patch.object(launcher.riot_runtime, "refresh_host"), \
+                 patch.object(launcher.riot_runtime, "ensure_healthy", side_effect=lambda assets, current, *args: current), \
+                 patch.object(launcher.riot_runtime, "quit_client"), \
                  patch.object(launcher.riot_runtime, "remove_install_watcher", return_value=False), \
                  patch.object(launcher.riot_runtime, "bootstrap_runtime", side_effect=AssertionError("Bootstrap must stay removed")), \
                  patch.object(launcher, "account_region", return_value={"region":"NA1", "version_set":"live-NA1"}), \
                  patch.object(launcher, "live_release", return_value=("manifest", "version")), \
                  patch.object(launcher, "connect_riot") as connect, patch.object(launcher, "update_game") as update, \
                  patch('sys.stdout', new_callable=io.StringIO) as output:
+                update.side_effect = lambda target: confirm.assert_not_called()
                 self.assertEqual(launcher.main(), 0)
                 update.assert_called_once_with("manifest")
                 self.assertEqual(connect.call_count, 2)
                 self.assertEqual(output.getvalue().count("Sign in to Riot to prepare TFT live."), 1)
+                confirm.assert_called_once()
+
+                candidate = data / "runtimes/new"
+                def activate(*args):
+                    riot_runtime.write_state(data, {
+                        "root": str(candidate), "manifest": "new", "pending": True,
+                        "previous_root": str(current), "previous_manifest": "old",
+                    })
+                    return candidate / riot_runtime.HOST_PATH
+                ensure.side_effect = activate
+                confirm.reset_mock()
+                def prepare(root, settings, target):
+                    confirm.assert_not_called()
+                    if root == candidate:
+                        raise RuntimeError("TFT preparation failed")
+                    self.assertEqual(root, current)
+                    return False
+                with patch.object(launcher, "prepare_game", side_effect=prepare) as preparation:
+                    self.assertEqual(launcher.main(), 0)
+                self.assertEqual(preparation.call_count, 2)
+                self.assertEqual(riot_runtime.read_state(data)["root"], str(current))
+                confirm.assert_called_once()
+
+                confirm.reset_mock()
+                with patch.object(launcher, "prepare_game", side_effect=RuntimeError("Both versions failed")):
+                    with self.assertRaisesRegex(RuntimeError, "Both versions failed"):
+                        launcher.main()
+                confirm.assert_not_called()
+                self.assertEqual(riot_runtime.read_state(data)["root"], str(current))
 
 
 if __name__ == "__main__":

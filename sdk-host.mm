@@ -5,6 +5,8 @@
 #include <cstdlib>
 #include <string>
 #include <vector>
+#include <thread>
+#include "rotating_log.h"
 
 // Folder (next to the host app) holding the platform-patched RiotGamesApi.framework.
 #ifndef SDK_DIR
@@ -14,6 +16,37 @@
 static std::string resolvedPath(const std::string &path) {
     return [[NSString stringWithUTF8String:path.c_str()]
         stringByResolvingSymlinksInPath].fileSystemRepresentation;
+}
+
+static void captureConsole(const std::string &path) {
+    if (!appendRotatingLog(path, "", 0)) return;
+    int channel[2];
+    if (pipe(channel) != 0) return;
+    const int originalOutput = dup(STDOUT_FILENO);
+    const int originalError = dup(STDERR_FILENO);
+    fflush(stdout);
+    fflush(stderr);
+    if (originalOutput < 0 || originalError < 0 || dup2(channel[1], STDOUT_FILENO) < 0
+        || dup2(channel[1], STDERR_FILENO) < 0) {
+        if (originalOutput >= 0) dup2(originalOutput, STDOUT_FILENO);
+        if (originalError >= 0) dup2(originalError, STDERR_FILENO);
+        close(channel[0]);
+    } else {
+        fcntl(channel[0], F_SETFD, FD_CLOEXEC);
+        std::thread([reader = channel[0], path] {
+            char buffer[8192];
+            while (true) {
+                const ssize_t count = read(reader, buffer, sizeof(buffer));
+                if (count < 0 && errno == EINTR) continue;
+                if (count <= 0) break;
+                appendRotatingLog(path, buffer, count);
+            }
+            close(reader);
+        }).detach();
+    }
+    if (originalOutput >= 0) close(originalOutput);
+    if (originalError >= 0) close(originalError);
+    close(channel[1]);
 }
 
 int main(int argc, char **argv) {
@@ -28,6 +61,9 @@ int main(int argc, char **argv) {
         }
         const std::string foundationPath = riotApp + "/Contents/Frameworks/libRiotClientFoundation.dylib";
         const std::string data = resolvedPath(root + "/sdk-host-data");
+        if (!(argc == 3 && std::string(argv[1]) == "--check-sdk")) {
+            captureConsole(data + "/host-console.log");
+        }
 
         if (!dlopen(sdkPath.c_str(), RTLD_NOW | RTLD_GLOBAL)) {
             std::fprintf(stderr, "SDK load failed: %s\n", dlerror());

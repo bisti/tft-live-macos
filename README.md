@@ -45,6 +45,11 @@ migrated automatically. Signed UI files are shared using hard links within each
 runtime. The active runtime and its previous version are retained. Older prepared
 versions, including the bootstrap once superseded, are removed automatically.
 
+A new runtime is confirmed after account-region checks and successful preparation
+of the TFT installation. Setup failures restore the previous runtime and retry
+preparation. Cached components are checked for changes at startup. Damaged bundles
+are rebuilt while preserving the user's settings and sign-in data.
+
 ## Local data
 
 Settings, sign-in data, and logs are stored in
@@ -54,6 +59,9 @@ An existing writable TFT installation can be reused. A new installation uses
 `~/Applications/Teamfight Tactics (Live).app`.
 
 The main log is `~/Library/Application Support/TFT Live/launcher.log`.
+Launcher and host console logs use 10 MiB files with three rotated archives.
+Before a new Riot host starts, its session logs are reduced to the three newest
+files per log folder, with older retained files trimmed to 10 MiB.
 When reporting an issue, redact account information and any tokens before
 sharing logs.
 

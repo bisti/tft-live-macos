@@ -9,6 +9,7 @@
 !/launcher_config.py
 !/riot_runtime.py
 !/sdk-host.mm
+!/rotating_log.h
 !/launch-tft-live.sh
 !/riot-sdk-host-override.json
 !/app/
