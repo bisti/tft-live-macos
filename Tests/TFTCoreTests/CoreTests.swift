@@ -197,6 +197,22 @@ final class PublicationTests: TemporaryTests {
 }
 
 final class RuntimeStateTests: TemporaryTests {
+    @Test func hostIconIsInstalledAndDeclaredInTheBundle() throws {
+        let assets = directory.appendingPathComponent("assets")
+        try makeDirectory(assets)
+        let bytes = Data("icon asset".utf8)
+        try bytes.write(to: assets.appendingPathComponent("TFTLive.icns"))
+        let contents = directory.appendingPathComponent("runtime/TFT SDK Host arm64.app/Contents")
+        try makeDirectory(contents)
+        let info: JSON = ["CFBundleExecutable": "SDKHost", "CFBundleIdentifier": "local.tft.live.sdk-host"]
+        try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: contents.appendingPathComponent("Info.plist"))
+        let runtime = RiotRuntime(try Configuration(assets: assets, data: directory))
+        try runtime.installHostIcon(directory.appendingPathComponent("runtime"))
+        let installed = try PropertyListSerialization.propertyList(from: Data(contentsOf: contents.appendingPathComponent("Info.plist")), format: nil) as! JSON
+        #expect(text(installed["CFBundleIconFile"]) == "TFTLive.icns")
+        #expect(text(installed["CFBundleExecutable"]) == "SDKHost")
+        #expect(try Data(contentsOf: contents.appendingPathComponent("Resources/TFTLive.icns")) == bytes)
+    }
     var manager: RiotRuntime!
     var current: URL!
     var candidate: URL!

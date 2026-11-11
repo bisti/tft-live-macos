@@ -24,3 +24,4 @@
 !/Tests/TFTCoreTests/*.swift
 /Resources/*
 !/Resources/riot-sdk-host-override.json
+!/Resources/TFTLive.png

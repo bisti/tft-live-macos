@@ -50,7 +50,10 @@ func runHost() throws -> Int32 {
     var pointers = settings.map { strdup($0) }
     defer { pointers.forEach { free($0) } }
     pointers.append(nil)
-    _ = NSApplication.shared
+    let application = NSApplication.shared
+    if let icon = Bundle.main.url(forResource: "TFTLive", withExtension: "icns") {
+        application.applicationIconImage = NSImage(contentsOf: icon)
+    }
     let run = unsafeBitCast(symbol, to: RiotRun.self)
     return pointers.withUnsafeMutableBufferPointer { run(Int32(settings.count), $0.baseAddress) }
 }

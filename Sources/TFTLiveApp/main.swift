@@ -11,6 +11,9 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if let icon = Bundle.main.url(forResource: "TFTLive", withExtension: "icns") {
+            NSApp.applicationIconImage = NSImage(contentsOf: icon)
+        }
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 155), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "TFT Live"
         window.center()

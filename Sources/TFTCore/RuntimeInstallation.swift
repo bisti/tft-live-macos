@@ -48,6 +48,16 @@ extension RiotRuntime {
         }
         try remove(backup)
     }
+    func installHostIcon(_ root: URL) throws {
+        let contents = root.appendingPathComponent("TFT SDK Host arm64.app/Contents")
+        let infoPath = contents.appendingPathComponent("Info.plist")
+        var info = try PropertyListSerialization.propertyList(from: Data(contentsOf: infoPath), format: nil) as? JSON ?? [:]
+        info["CFBundleIconFile"] = "TFTLive.icns"
+        try atomicWrite(PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0), to: infoPath)
+        let resources = contents.appendingPathComponent("Resources")
+        try makeDirectory(resources)
+        try atomicWrite(Data(contentsOf: configuration.assets.appendingPathComponent("TFTLive.icns")), to: resources.appendingPathComponent("TFTLive.icns"))
+    }
     private func makeHost(_ root: URL) throws {
         let host = root.appendingPathComponent(hostRelativePath)
         try makeDirectory(host.deletingLastPathComponent())
@@ -57,6 +67,7 @@ extension RiotRuntime {
                           "LSRequiresNativeExecution": true, "LSMinimumSystemVersion": "14.0"]
         let plist = try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0)
         try atomicWrite(plist, to: host.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Info.plist"))
+        try installHostIcon(root)
         try shareInterface(root)
     }
     public func refreshHost(_ current: URL) throws {
@@ -64,16 +75,19 @@ extension RiotRuntime {
         let host = current.appendingPathComponent(hostRelativePath)
         let marker = current.appendingPathComponent("host.json")
         let installed = try exists(host) ? fileDigest(host) : ""
+        let icon = try fileDigest(configuration.assets.appendingPathComponent("TFTLive.icns"))
+        let installedIcon = try? fileDigest(current.appendingPathComponent("TFT SDK Host arm64.app/Contents/Resources/TFTLive.icns"))
         let record = (try? readJSON(marker)) ?? [:]
-        if text(record["source"]) == source && text(record["installed"]) == installed { return }
+        if text(record["source"]) == source && text(record["installed"]) == installed && text(record["icon"]) == icon && installedIcon == icon { return }
         try quit()
         let replacement = URL(fileURLWithPath: host.path + ".new")
         try makeDirectory(host.deletingLastPathComponent())
         try remove(replacement)
         try clone(configuration.hostSource, replacement)
         guard rename(replacement.path, host.path) == 0 else { throw LauncherError("Unable to install the updated Swift host.") }
+        try installHostIcon(current)
         try shareInterface(current)
-        try atomicJSON(["source": source, "installed": fileDigest(host)], to: marker)
+        try atomicJSON(["source": source, "installed": fileDigest(host), "icon": icon], to: marker)
     }
     public func fingerprint(_ root: URL) throws -> String {
         let canonicalRoot = resolved(root)
