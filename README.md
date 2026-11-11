@@ -21,7 +21,7 @@ An independent project, unaffiliated with Riot Games.
 4. Wait for game preparation to finish, then click **Play** in Riot.
 
 The launcher detects your account server, checks its live release, and installs or
-updates the TFT Mac client. The required Python runtime is bundled with the application.
+updates the TFT Mac client. The application and its host are native Swift executables.
 
 The application is ad-hoc signed and has no Apple notarization. macOS may ask
 you to allow it when opening it for the first time.
@@ -67,19 +67,24 @@ sharing logs.
 
 ## Building from source
 
-Building requires Python 3.9 or later and Apple developer tools to compile
-the two small ARM64 executables.
+Building requires Swift 6 or later and Apple developer tools on an Apple Silicon Mac.
 
 ```sh
-python3 build_arm64_host.py
-python3 app/build.py
+./build.sh
 ```
 
 The output includes `dist/TFT Live.app`, `dist/TFT-Live-AppleSilicon.zip`, and its
 SHA-256 checksum. A local copy of the application is also created at the project root.
 
-The portable Python runtime is downloaded from Python Build Standalone.
-Its URL and SHA-256 checksum are pinned in the build script.
+The interface, command-line launcher, SDK host, configuration, runtime updates,
+repair, logging, and ARM64 component adaptation are implemented in Swift.
+The application uses the Swift libraries provided by macOS.
+
+The former Python launch and build commands remain as small compatibility wrappers
+that forward to the native executables or the shell build script.
+
+To launch from a terminal, use `./launch-tft-live.sh`. To see preparation output
+directly, run `./TFT\ Live.app/Contents/MacOS/TFTLiveCLI`.
 
 Riot components and resources are prepared on each user's machine from their
 installation or from Riot services.
@@ -87,13 +92,25 @@ installation or from Riot services.
 ## Tests
 
 ```sh
-python3 -m unittest discover -s tests -v
+./test.sh
 ```
 
-Validation covers a complete installation into an empty directory, an actual
-game launch on an EUW1 account, relocating the application, and extracting its
-archive. Published releases for all 15 live regions advertised by Riot have
-been checked. Matches in other regions still need testing.
+The Swift Testing suite covers regional configuration, published release matching,
+ARM64 SDK adaptation, preparation checks, rollback, transactional replacement,
+log rotation, and legacy state compatibility. The test script locates the testing
+framework supplied by Xcode or the Apple command-line tools.
+
+The optional integration test prepares components from the installed Riot Client,
+removes and repairs the SDK and UI, starts a headless Swift host, and downloads
+a current Riot runtime. It requires network access and temporary disk space.
+
+```sh
+TFT_NATIVE_INTEGRATION=1 ./test.sh --filter IntegrationTests
+```
+
+An actual game launch and matches were previously verified on EUW1. Published
+release metadata for all 15 live regions advertised by Riot was checked during
+earlier validation. Matches in other regions still need testing.
 
 ## License and third-party components
 
