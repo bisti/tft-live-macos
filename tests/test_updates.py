@@ -153,6 +153,48 @@ class RuntimeStateTests(unittest.TestCase):
         validate.assert_called_once_with(candidate, 512)
         download.assert_not_called()
 
+    def test_cleanup_keeps_current_and_fallback_and_retries_on_later_launches(self):
+        previous = self.data / "runtimes/previous"
+        bootstrap = self.data / "bootstrap"
+        obsolete = self.data / "runtimes/obsolete"
+        for directory in (self.candidate, previous, bootstrap, obsolete):
+            host = directory / riot_runtime.HOST_PATH
+            host.parent.mkdir(parents=True, exist_ok=True)
+            host.write_bytes(b"host")
+            marker = "bootstrap-ready.json" if directory == bootstrap else "sdk-ready.json"
+            (directory / marker).write_text("{}")
+        unrelated = self.data / "runtimes/unrelated"
+        unrelated.mkdir()
+        riot_runtime.write_state(self.data, {
+            "root": str(self.candidate), "previous_root": str(previous), "pending": False,
+        })
+        riot_runtime.confirm(self.data)
+        self.assertTrue(previous.exists())
+        self.assertTrue(self.candidate.exists())
+        self.assertTrue(unrelated.exists())
+        self.assertFalse(bootstrap.exists())
+        self.assertFalse(obsolete.exists())
+        riot_runtime.confirm(self.data)
+
+    def test_cleanup_preserves_bootstrap_during_first_activation(self):
+        bootstrap = self.data / "bootstrap"
+        bootstrap.mkdir()
+        (bootstrap / "bootstrap-ready.json").write_text("{}")
+        riot_runtime.write_state(self.data, {
+            "root": str(self.candidate), "previous_root": str(bootstrap), "pending": True,
+        })
+        riot_runtime.confirm(self.data)
+        self.assertTrue(bootstrap.exists())
+
+    def test_updates_use_persistent_configuration_after_bootstrap_cleanup(self):
+        bootstrap = self.data / "bootstrap"
+        self.assertFalse(bootstrap.exists())
+        manifest = "https://ks-foundation.secure.dyn.riotcdn.net/channels/public/releases/1234567890ABCDEF.manifest"
+        with patch.object(riot_runtime, "download_runtime", side_effect=RuntimeError("download probe")) as download:
+            with self.assertRaisesRegex(RuntimeError, "download probe"):
+                riot_runtime.prepare_candidate(bootstrap, self.candidate, self.data, manifest, None)
+        self.assertEqual(download.call_args.args[0], self.data)
+
 
 def synthetic_sdk(address=0x200, duplicate=False):
     data = bytearray(0x600)
@@ -197,8 +239,9 @@ class ManualLaunchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             data = Path(temporary)
             (data / "user").mkdir()
-            (data / "bootstrap").mkdir()
-            (data / "bootstrap/bootstrap-ready.json").write_text('{}')
+            current = data / "runtimes/current"
+            current.mkdir(parents=True)
+            riot_runtime.write_state(data, {"root": str(current), "pending": False})
             host = data / "SDKHost"
             host.touch()
             game = data / "Game.app"
@@ -220,6 +263,7 @@ class ManualLaunchTests(unittest.TestCase):
                  patch.object(launcher.riot_runtime, "wire_configuration"), \
                  patch.object(launcher.riot_runtime, "refresh_host"), \
                  patch.object(launcher.riot_runtime, "remove_install_watcher", return_value=False), \
+                 patch.object(launcher.riot_runtime, "bootstrap_runtime", side_effect=AssertionError("Bootstrap must stay removed")), \
                  patch.object(launcher, "account_region", return_value={"region":"NA1", "version_set":"live-NA1"}), \
                  patch.object(launcher, "live_release", return_value=("manifest", "version")), \
                  patch.object(launcher, "connect_riot") as connect, patch.object(launcher, "update_game") as update, \

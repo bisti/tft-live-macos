@@ -22,7 +22,10 @@ int main(int argc, char **argv) {
         NSString *bundle = NSBundle.mainBundle.bundlePath.stringByResolvingSymlinksInPath;
         const std::string root = bundle.stringByDeletingLastPathComponent.fileSystemRepresentation;
         const std::string sdkPath = root + "/" SDK_DIR "/RiotGamesApi.framework/RiotGamesApi";
-        const std::string riotApp = root + "/Riot Windows Auth Test.app";
+        std::string riotApp = root + "/Riot Runtime.app";
+        if (![NSFileManager.defaultManager fileExistsAtPath:[NSString stringWithUTF8String:riotApp.c_str()]]) {
+            riotApp = root + "/Riot Windows Auth Test.app";
+        }
         const std::string foundationPath = riotApp + "/Contents/Frameworks/libRiotClientFoundation.dylib";
         const std::string data = resolvedPath(root + "/sdk-host-data");
 

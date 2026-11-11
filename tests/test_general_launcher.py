@@ -90,10 +90,17 @@ class InstallationTests(unittest.TestCase):
             host = current / riot_runtime.HOST_PATH
             host.parent.mkdir(parents=True)
             host.write_bytes(b"old host")
+            interface = current / riot_runtime.LEGACY_RIOT_APP / "Contents/Frameworks/Riot Client.app"
+            interface.mkdir(parents=True)
+            (interface / "UI").write_bytes(b"signed UI")
             with patch.object(riot_runtime, "quit_client") as quit_client, \
                  patch.object(riot_runtime.subprocess, "run") as run:
                 riot_runtime.refresh_host(assets, current, root, None)
                 self.assertEqual(host.read_bytes(), b"fixed host")
+                self.assertFalse((current / riot_runtime.LEGACY_RIOT_APP).exists())
+                original = current / riot_runtime.RIOT_APP / "Contents/Frameworks/Riot Client.app/UI"
+                shared = current / riot_runtime.HOST_PATH.parents[1] / "Frameworks/Riot Client.app/UI"
+                self.assertTrue(original.samefile(shared))
                 quit_client.assert_called_once()
                 self.assertEqual(run.call_count, 2)
                 quit_client.reset_mock()
@@ -105,6 +112,23 @@ class InstallationTests(unittest.TestCase):
                 riot_runtime.refresh_host(assets, current, root, None)
                 self.assertEqual(host.read_bytes(), b"fixed host")
                 quit_client.assert_called_once()
+
+    def test_failed_interface_signing_restores_the_previous_copy(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            current = Path(temporary)
+            source = current / riot_runtime.RIOT_APP / "Contents/Frameworks/Riot Client.app"
+            source.mkdir(parents=True)
+            (source / "UI").write_bytes(b"new UI")
+            interface = current / riot_runtime.HOST_PATH.parents[1] / "Frameworks/Riot Client.app"
+            interface.mkdir(parents=True)
+            (interface / "UI").write_bytes(b"old UI")
+            with patch.object(riot_runtime.subprocess, "run", side_effect=RuntimeError("signing failed")):
+                with self.assertRaises(RuntimeError):
+                    riot_runtime.share_interface(current)
+            self.assertEqual((interface / "UI").read_bytes(), b"old UI")
+            with patch.object(riot_runtime.subprocess, "run"):
+                riot_runtime.share_interface(current)
+            self.assertTrue((source / "UI").samefile(interface / "UI"))
 
     def test_legacy_watcher_is_removed_only_for_the_private_host(self):
         with tempfile.TemporaryDirectory() as temporary:

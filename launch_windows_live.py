@@ -275,9 +275,9 @@ def main():
                 if (legacy / name).is_dir():
                     riot_runtime.clone(legacy / name, DATA / name)
         base = DATA / "bootstrap"
-        if not (base / "bootstrap-ready.json").is_file():
-            base = riot_runtime.bootstrap_runtime(ROOT, DATA, launcher_config.installed_riot())
         state = riot_runtime.read_state(DATA)
+        if not state.get("root") and not (base / "bootstrap-ready.json").is_file():
+            base = riot_runtime.bootstrap_runtime(ROOT, DATA, launcher_config.installed_riot())
         if state.get("pending"):
             riot_runtime.quit_client(api, LOCK)
             riot_runtime.rollback(base, DATA)

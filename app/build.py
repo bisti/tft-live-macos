@@ -56,7 +56,7 @@ def build():
             shutil.copyfile(ROOT / name, resources / name)
         info = {"CFBundleExecutable": "TFT Live", "CFBundleIdentifier": "local.tft.live.launcher",
                 "CFBundleName": "TFT Live", "CFBundleDisplayName": "TFT Live", "CFBundlePackageType": "APPL",
-                "CFBundleVersion": "3", "CFBundleShortVersionString": "1.0.2",
+                "CFBundleVersion": "4", "CFBundleShortVersionString": "1.0.3",
                 "LSMinimumSystemVersion": "14.0", "LSArchitecturePriority": ["arm64"],
                 "LSRequiresNativeExecution": True, "LSUIElement": True, "NSHighResolutionCapable": True}
         (contents / "Info.plist").write_bytes(plistlib.dumps(info))

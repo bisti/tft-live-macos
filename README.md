@@ -40,6 +40,11 @@ New Riot runtime versions are staged separately and validated before activation.
 Failed validation triggers a rollback to the previous version. Compatibility
 depends on changes to Riot components and services.
 
+The private components are named `Riot Runtime.app`. Existing installations are
+migrated automatically. Signed UI files are shared using hard links within each
+runtime. The active runtime and its previous version are retained. Older prepared
+versions, including the bootstrap once superseded, are removed automatically.
+
 ## Local data
 
 Settings, sign-in data, and logs are stored in

@@ -19,7 +19,8 @@ from riot_adapter.sdk_patch import patch_windows_sdk
 
 
 HOST_PATH = Path("TFT SDK Host arm64.app/Contents/MacOS/SDKHost")
-RIOT_APP = "Riot Windows Auth Test.app"
+RIOT_APP = "Riot Runtime.app"
+LEGACY_RIOT_APP = "Riot Windows Auth Test.app"
 RUNTIME_PATCHLINE = "keystone.products.teamfighttactics.patchlines.runtime"
 REGISTRY = "/rnet-product-registry/v4/"
 
@@ -110,11 +111,54 @@ def confirm(data):
     if state.get("pending"):
         state["pending"] = False
         write_state(data, state)
-        keep = {Path(state["root"]).resolve(), Path(state["previous_root"]).resolve()}
-        releases = data / "runtimes"
-        for release in releases.iterdir():
-            if release.is_dir() and not release.is_symlink() and release.resolve() not in keep:
-                shutil.rmtree(release)
+    if not state.get("root"):
+        return
+    keep = {Path(state[key]).resolve() for key in ("root", "previous_root") if state.get(key)}
+    releases = data / "runtimes"
+    candidates = list(releases.iterdir()) if releases.is_dir() else []
+    if len(keep) == 2 and all((directory / HOST_PATH).is_file() for directory in keep):
+        candidates.append(data / "bootstrap")
+    for release in candidates:
+        owned = (release / "sdk-ready.json").is_file() or (release / "bootstrap-ready.json").is_file()
+        if owned and not release.is_symlink() and release.resolve() not in keep:
+            shutil.rmtree(release)
+
+
+def share_interface(directory):
+    """Share immutable, signed UI files within a runtime using hard links."""
+    def share_file(source, destination):
+        try:
+            os.link(source, destination)
+        except OSError:
+            clone(Path(source), Path(destination))
+
+    interface = directory / HOST_PATH.parents[1] / "Frameworks/Riot Client.app"
+    interface.parent.mkdir(parents=True, exist_ok=True)
+    staged = interface.with_name("Riot Client.app.new")
+    backup = directory / "riot-interface.previous"
+    if backup.exists() and not interface.exists():
+        backup.replace(interface)
+    if staged.exists():
+        shutil.rmtree(staged)
+    shutil.copytree(directory / RIOT_APP / "Contents/Frameworks/Riot Client.app", staged,
+                    copy_function=share_file, symlinks=True)
+    if backup.exists():
+        shutil.rmtree(backup)
+    if interface.exists():
+        interface.replace(backup)
+    staged.replace(interface)
+    try:
+        # Deep signing would rewrite the UI files shared with the signed runtime.
+        host_app = directory / HOST_PATH.parents[2]
+        subprocess.run(["codesign", "--force", "--sign", "-", str(host_app)], check=True)
+        subprocess.run(["codesign", "--verify", "--deep", "--strict", str(host_app)], check=True)
+    except Exception:
+        shutil.rmtree(interface)
+        if backup.exists():
+            backup.replace(interface)
+        raise
+    if backup.exists():
+        shutil.rmtree(backup)
 
 
 def official_configuration(current, data):
@@ -200,16 +244,18 @@ def refresh_host(assets, current, data, api):
     marker = current / "host-source.json"
     source_digest = hashlib.sha256(source.read_bytes()).hexdigest()
     recorded = json.loads(marker.read_text()) if marker.is_file() else {}
-    if recorded == {"source": source_digest, "installed": hashlib.sha256(host.read_bytes()).hexdigest()}:
+    if recorded == {"source": source_digest, "installed": hashlib.sha256(host.read_bytes()).hexdigest(), "layout": 3}:
         return
     quit_client(api, data / "user/Config/lockfile")
+    legacy = current / LEGACY_RIOT_APP
+    if legacy.is_dir() and not (current / RIOT_APP).exists():
+        legacy.replace(current / RIOT_APP)
     temporary = host.with_suffix(".new")
     shutil.copy2(source, temporary)
     temporary.replace(host)
-    subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(host.parents[2])], check=True)
-    subprocess.run(["codesign", "--verify", "--deep", "--strict", str(host.parents[2])], check=True)
+    share_interface(current)
     from launcher_config import atomic_json
-    atomic_json(marker, {"source": source_digest, "installed": hashlib.sha256(host.read_bytes()).hexdigest()})
+    atomic_json(marker, {"source": source_digest, "installed": hashlib.sha256(host.read_bytes()).hexdigest(), "layout": 3})
 
 
 def bootstrap_runtime(assets, data, installed):
@@ -239,8 +285,7 @@ def bootstrap_runtime(assets, data, installed):
                 "CFBundleName": "TFT SDK Host", "CFBundlePackageType": "APPL", "CFBundleVersion": "1",
                 "LSArchitecturePriority": ["arm64"], "LSRequiresNativeExecution": True, "LSMinimumSystemVersion": "14.0"}
         (host.parents[1] / "Info.plist").write_bytes(plistlib.dumps(info))
-        clone(runtime / "Contents/Frameworks/Riot Client.app", host.parents[1] / "Frameworks/Riot Client.app")
-        subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(host.parents[2])], check=True)
+        share_interface(stage)
         wire_configuration(stage, data)
         validate_candidate(stage, address)
         (stage / "bootstrap-ready.json").write_text(json.dumps({"address": address}))
@@ -248,7 +293,7 @@ def bootstrap_runtime(assets, data, installed):
     return destination
 
 
-def download_runtime(root, current, stage, manifest, api):
+def download_runtime(data, current, stage, manifest, api):
     host = stage / HOST_PATH
     clone(current / HOST_PATH, host)
     clone(current / HOST_PATH.parents[1] / "Info.plist", host.parents[1] / "Info.plist")
@@ -257,17 +302,17 @@ def download_runtime(root, current, stage, manifest, api):
     interface.symlink_to(current / HOST_PATH.parents[1] / "Frameworks/Riot Client.app")
     for name in [RIOT_APP, "sdk-windows-override-arm64"]:
         (stage / name).symlink_to(current / name, target_is_directory=True)
-    shutil.copy2(root / "sdk-host-system.yaml", stage / "sdk-host-system.yaml")
-    region_file = root / "riot-region.txt"
+    shutil.copy2(data / "sdk-host-system.yaml", stage / "sdk-host-system.yaml")
+    region_file = data / "riot-region.txt"
     if region_file.exists():
         shutil.copyfile(region_file, stage / "riot-region.txt")
-    configuration = json.loads((root / "riot-sdk-host-override.json").read_text())
+    configuration = json.loads((data / "riot-sdk-host-override.json").read_text())
     product = copy.deepcopy(configuration["public"]["keystone.products.teamfighttactics.patchlines.live"])
     for metadata in product["metadata"].values():
         metadata.pop("product_dependency", None)
     for platform in product["platforms"].values():
         platform["auto_patch"] = False
-        platform["install_dir"] = "Riot Runtime.app"
+        platform["install_dir"] = "Riot Download.app"
         for settings in platform.get("configurations", []):
             settings.update(patch_url=manifest, dependencies=[], excluded_paths=[])
     configuration["public"][RUNTIME_PATCHLINE] = product
@@ -275,7 +320,7 @@ def download_runtime(root, current, stage, manifest, api):
     local_data = stage / "sdk-host-data"
     local_data.mkdir(mode=0o700)
     lock = local_data / "user/Config/lockfile"
-    destination = stage / "Riot Runtime.app"
+    destination = stage / "Riot Download.app"
     with (local_data / "host-console.log").open("wb") as console:
         process = subprocess.Popen([str(host), "--headless"], stdin=subprocess.DEVNULL,
                                    stdout=console, stderr=console, start_new_session=True)
@@ -340,7 +385,7 @@ def prepare_candidate(root, current, data, manifest, api):
         shutil.rmtree(candidate)
     with tempfile.TemporaryDirectory(prefix="runtime-stage-", dir=data) as temporary:
         stage = Path(temporary)
-        downloaded = download_runtime(root, current, stage, manifest, api)
+        downloaded = download_runtime(data, current, stage, manifest, api)
         candidate.mkdir(mode=0o700)
         try:
             runtime = candidate / RIOT_APP
@@ -354,8 +399,7 @@ def prepare_candidate(root, current, data, manifest, api):
             host = candidate / HOST_PATH
             clone(current / HOST_PATH, host)
             clone(current / HOST_PATH.parents[1] / "Info.plist", host.parents[1] / "Info.plist")
-            clone(runtime / "Contents/Frameworks/Riot Client.app", host.parents[1] / "Frameworks/Riot Client.app")
-            subprocess.run(["codesign", "--force", "--deep", "--sign", "-", str(host.parents[2])], check=True)
+            share_interface(candidate)
             wire_configuration(candidate, data)
             validate_candidate(candidate, address)
             marker.write_text(json.dumps({"manifest": manifest, "address": address}))
