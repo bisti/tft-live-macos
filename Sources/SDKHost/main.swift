@@ -13,7 +13,7 @@ func runHost() throws -> Int32 {
     let data = resolved(root.appendingPathComponent("sdk-host-data"))
     let arguments = CommandLine.arguments
     let checking = arguments.count == 3 && arguments[1] == "--check-sdk"
-    if !checking { captureConsole(data.appendingPathComponent("host-console.log")) }
+    if !checking { try captureConsole(data.appendingPathComponent("host-console.log"), executable: URL(fileURLWithPath: arguments[0])) }
     guard dlopen(sdk.path, RTLD_NOW | RTLD_GLOBAL) != nil else {
         throw LauncherError("SDK load failed. " + String(cString: dlerror()))
     }
@@ -56,6 +56,11 @@ func runHost() throws -> Int32 {
     }
     let run = unsafeBitCast(symbol, to: RiotRun.self)
     return pointers.withUnsafeMutableBufferPointer { run(Int32(settings.count), $0.baseAddress) }
+}
+
+if CommandLine.arguments.count == 3 && CommandLine.arguments[1] == "--console-relay" {
+    relayConsole(URL(fileURLWithPath: CommandLine.arguments[2]))
+    exit(0)
 }
 
 let status: Int32 = autoreleasepool {

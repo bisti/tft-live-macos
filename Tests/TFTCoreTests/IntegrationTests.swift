@@ -4,6 +4,37 @@ import Testing
 
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["TFT_NATIVE_INTEGRATION"] == "1"))
 final class IntegrationTests: TemporaryTests {
+    @Test func consoleRelaySurvivesTheOriginalWriterAndRotates() throws {
+        let log = directory.appendingPathComponent("console.log")
+        let host = repository.appendingPathComponent("dist/TFT Live.app/Contents/Resources/SDKHost")
+        let relay = try startConsoleRelay(log, executable: host)
+        defer {
+            try? relay.input.close()
+            if relay.process.isRunning { relay.process.terminate() }
+        }
+        let writer = Process()
+        writer.executableURL = URL(fileURLWithPath: "/bin/sh")
+        writer.arguments = ["-c", "printf 'parent\\n'; (/bin/sleep 1; printf 'descendant\\n' >&2) &"]
+        writer.standardOutput = relay.input
+        writer.standardError = relay.input
+        try writer.run()
+        writer.waitUntilExit()
+        #expect(writer.terminationStatus == 0)
+        #expect(relay.process.isRunning)
+        try relay.input.write(contentsOf: Data(repeating: 65, count: 11 * 1024 * 1024))
+        try relay.input.close()
+        let deadline = monotonic() + 10
+        while relay.process.isRunning && monotonic() < deadline { pause(0.05) }
+        try #require(!relay.process.isRunning)
+        #expect(relay.process.terminationStatus == 0)
+        let current = try Data(contentsOf: log)
+        let archived = try Data(contentsOf: URL(fileURLWithPath: log.path + ".1"))
+        #expect(current.count <= 10 * 1024 * 1024)
+        #expect(archived.count <= 10 * 1024 * 1024)
+        #expect(String(decoding: archived + current, as: UTF8.self).contains("descendant\n"))
+        #expect(String(decoding: archived, as: UTF8.self).hasPrefix("parent\n"))
+    }
+
     @Test func nativePreparationRepairAndRuntimeDownload() throws {
         let config = try Configuration(assets: repository.appendingPathComponent("dist/TFT Live.app/Contents/Resources"), data: directory)
         try config.prepareFiles()

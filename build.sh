@@ -33,8 +33,8 @@ cat > "$LAUNCHER_APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleDisplayName</key><string>TFT Live</string>
 <key>CFBundleIconFile</key><string>TFTLive.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
-<key>CFBundleVersion</key><string>8</string>
-<key>CFBundleShortVersionString</key><string>1.1.2</string>
+<key>CFBundleVersion</key><string>9</string>
+<key>CFBundleShortVersionString</key><string>1.1.3</string>
 <key>LSMinimumSystemVersion</key><string>14.0</string>
 <key>LSRequiresNativeExecution</key><true/>
 <key>LSArchitecturePriority</key><array><string>arm64</string></array>

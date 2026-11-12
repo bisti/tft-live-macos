@@ -62,32 +62,38 @@ public func pruneLogs(_ data: URL) throws {
     }
 }
 
-/// Each host drains its own stdout/stderr pipe. The file lock coordinates sibling processes.
-public func captureConsole(_ path: URL) {
+/// The relay owns the reader until every inherited writer has closed its output.
+public func startConsoleRelay(_ path: URL, executable: URL) throws -> (process: Process, input: FileHandle) {
+    try RotatingLog(path).append(Data())
+    let channel = Pipe()
+    let process = Process()
+    process.executableURL = executable
+    process.arguments = ["--console-relay", path.path]
+    process.standardInput = channel
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    try process.run()
+    try channel.fileHandleForReading.close()
+    return (process, channel.fileHandleForWriting)
+}
+
+public func relayConsole(_ path: URL) {
     let log = RotatingLog(path)
-    guard (try? log.append(Data())) != nil else { return }
-    var descriptors: [Int32] = [0, 0]
-    guard pipe(&descriptors) == 0 else { return }
-    let output = dup(STDOUT_FILENO)
-    let error = dup(STDERR_FILENO)
-    fflush(stdout); fflush(stderr)
-    guard output >= 0, error >= 0, dup2(descriptors[1], STDOUT_FILENO) >= 0, dup2(descriptors[1], STDERR_FILENO) >= 0 else {
-        if output >= 0 { dup2(output, STDOUT_FILENO); close(output) }
-        if error >= 0 { dup2(error, STDERR_FILENO); close(error) }
-        close(descriptors[0]); close(descriptors[1])
-        return
+    var buffer = [UInt8](repeating: 0, count: 8192)
+    while true {
+        let count = read(STDIN_FILENO, &buffer, buffer.count)
+        if count < 0 && errno == EINTR { continue }
+        if count <= 0 { return }
+        try? log.append(Data(buffer.prefix(count)))
     }
-    close(output); close(error); close(descriptors[1])
-    _ = fcntl(descriptors[0], F_SETFD, FD_CLOEXEC)
-    let reader = descriptors[0]
-    DispatchQueue.global(qos: .utility).async {
-        var buffer = [UInt8](repeating: 0, count: 8192)
-        while true {
-            let count = read(reader, &buffer, buffer.count)
-            if count < 0 && errno == EINTR { continue }
-            if count <= 0 { break }
-            try? log.append(Data(buffer.prefix(count)))
-        }
-        close(reader)
+}
+
+public func captureConsole(_ path: URL, executable: URL) throws {
+    let relay = try startConsoleRelay(path, executable: executable)
+    defer { try? relay.input.close() }
+    fflush(stdout); fflush(stderr)
+    guard dup2(relay.input.fileDescriptor, STDOUT_FILENO) >= 0,
+          dup2(relay.input.fileDescriptor, STDERR_FILENO) >= 0 else {
+        throw LauncherError("Unable to connect the Riot console log.")
     }
 }
