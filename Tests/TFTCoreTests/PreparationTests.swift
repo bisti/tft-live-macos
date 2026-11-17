@@ -7,6 +7,9 @@ final class PreparationTests: TemporaryTests {
         let config = try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory)
         try atomicJSON(["game_path": directory.appendingPathComponent("Game.app").path], to: directory.appendingPathComponent("install.json"))
         _ = try file("Game.app/Contents/MacOS/TFTClient-Mac-Shipping")
+        let info: JSON = ["CFBundleName": "Teamfight Tactics", "CFBundleDisplayName": "Teamfight Tactics",
+                          "CFBundleExecutable": "TFTClient-Mac-Shipping"]
+        _ = try file("Game.app/Contents/Info.plist", PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0))
         _ = try file("user/Config/ClientConfiguration.json", jsonData(["public": [["updateTime": 1, "data": regionalConfiguration()]]]))
         let runtime = RiotRuntime(config, api: { method, route, _, _ in
             #expect(!route.contains("product-launcher"))
@@ -21,6 +24,36 @@ final class PreparationTests: TemporaryTests {
     }
     func ready(_ region: String = "NA1", manifest: String = "manifest", state: String = "up_to_date") -> JSON {
         ["configuration": ["id": region, "patch_url": manifest], "combined_patch_state": state]
+    }
+    @Test func gameDisplayNamePreservesExecutableAndSkipsUnchangedMetadata() throws {
+        let launcher = try fixture { self.ready() }
+        let path = launcher.game.appendingPathComponent("Contents/Info.plist")
+        let original: JSON = ["CFBundleName": "TFTClient-Mac-Shipping", "CFBundleExecutable": "TFTClient-Mac-Shipping",
+                              "CFBundleIdentifier": "com.riotgames.league.teamfighttactics"]
+        try PropertyListSerialization.data(fromPropertyList: original, format: .xml, options: 0).write(to: path)
+        var validations = 0
+        try launcher.updateGameDisplayName { _ in validations += 1 }
+        let updated = try Data(contentsOf: path)
+        let info = try #require(PropertyListSerialization.propertyList(from: updated, format: nil) as? JSON)
+        #expect(text(info["CFBundleName"]) == "Teamfight Tactics")
+        #expect(text(info["CFBundleDisplayName"]) == "Teamfight Tactics")
+        #expect(text(info["CFBundleExecutable"]) == text(original["CFBundleExecutable"]))
+        #expect(text(info["CFBundleIdentifier"]) == text(original["CFBundleIdentifier"]))
+        try launcher.updateGameDisplayName { _ in validations += 1 }
+        #expect(validations == 1)
+        #expect(try Data(contentsOf: path) == updated)
+    }
+    @Test func protectedGameMetadataIsPreservedIfValidationFails() throws {
+        let launcher = try fixture { self.ready() }
+        let path = launcher.game.appendingPathComponent("Contents/Info.plist")
+        let original = try PropertyListSerialization.data(fromPropertyList: ["CFBundleName": "Publisher name"], format: .xml, options: 0)
+        try original.write(to: path)
+        #expect(throws: (any Error).self) {
+            try launcher.updateGameDisplayName { _ in
+                throw LauncherError("Protected metadata")
+            }
+        }
+        #expect(try Data(contentsOf: path) == original)
     }
     @Test func completedPreparationRequiresMatchingRegionAndNativeExecutable() throws {
         let launcher = try fixture { self.ready() }

@@ -162,7 +162,26 @@ public final class Launcher {
         try require(patch.status == 200 && text(loaded["patch_url"]) == release.manifest && text(loaded["id"]) == region.id
                     && text(patch.json["combined_patch_state"]) == "up_to_date", "TFT preparation did not confirm the requested live release and server.")
         try require(exists(game.appendingPathComponent("Contents/MacOS/TFTClient-Mac-Shipping")), "The Riot patcher did not install the expected TFT Mac client.")
+        do { try updateGameDisplayName() }
+        catch { report("Unable to update the game display name. " + error.localizedDescription) }
         return false
+    }
+    func updateGameDisplayName(validate: (URL) throws -> Void = { game in
+        let signature = try command(["/usr/bin/codesign", "--display", "--verbose=2", game.path]).errorOutput
+        try require(signature.contains("Info.plist=not bound") && signature.contains("Sealed Resources=none"),
+                    "The publisher's signature protects the game display metadata.")
+    }) throws {
+        let path = game.appendingPathComponent("Contents/Info.plist")
+        let original = try Data(contentsOf: path)
+        guard var info = try PropertyListSerialization.propertyList(from: original, format: nil) as? JSON else {
+            throw LauncherError("The game bundle metadata is invalid.")
+        }
+        let name = "Teamfight Tactics"
+        if text(info["CFBundleName"]) == name && text(info["CFBundleDisplayName"]) == name { return }
+        try validate(game)
+        info["CFBundleName"] = name
+        info["CFBundleDisplayName"] = name
+        try atomicWrite(PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0), to: path)
     }
     public func run() throws {
         umask(0o077)
