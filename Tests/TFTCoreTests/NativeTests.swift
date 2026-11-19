@@ -124,6 +124,13 @@ final class LogTests: TemporaryTests {
         try RotatingLog(path, limit: 128).append(Data(repeating: 1, count: 1024))
         for suffix in ["", ".1", ".2", ".3"] { #expect((try Data(contentsOf: URL(fileURLWithPath: path.path + suffix)).count) == (128)) }
     }
+    @Test func slicedDataAndInvalidLogLimits() throws {
+        let path = directory.appendingPathComponent("console.log")
+        let bytes = Data([0, 1, 2, 3]).dropFirst()
+        try RotatingLog(path, limit: 10).append(bytes)
+        #expect(try Data(contentsOf: path) == bytes)
+        #expect(throws: LauncherError.self) { try RotatingLog(path, limit: 0).append(bytes) }
+    }
     @Test func testConcurrentWritersKeepCompleteChunks() throws {
         let path = directory.appendingPathComponent("console.log")
         DispatchQueue.concurrentPerform(iterations: 4) { index in
@@ -145,10 +152,12 @@ final class LogTests: TemporaryTests {
             try Data().write(to: path)
             try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: Double(index))], ofItemAtPath: path.path)
         }
+        let archive = try file("logs/Riot Client Logs/archive.log/preserved.txt")
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 0)], ofItemAtPath: archive.deletingLastPathComponent().path)
         let external = try file("unrelated.log", Data("preserved".utf8))
         try FileManager.default.createSymbolicLink(at: logs.appendingPathComponent("linked.log"), withDestinationURL: external)
         try pruneLogs(directory)
-        #expect((Set(files(logs).map(\.lastPathComponent))) == (["4.log", "5.log", "6.log", "linked.log"]))
+        #expect((Set(files(logs).map(\.lastPathComponent))) == (["4.log", "5.log", "6.log", "linked.log", "archive.log", "preserved.txt"]))
         #expect((try readText(external)) == ("preserved"))
     }
 }

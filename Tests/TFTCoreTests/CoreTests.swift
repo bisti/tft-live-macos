@@ -68,6 +68,18 @@ final class SupportTests: TemporaryTests {
         #expect(result.output == "standard")
         #expect(result.errorOutput == "diagnostic")
     }
+    @Test func concurrentCommandsDrainLargeDiagnostics() async throws {
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<16 {
+                group.addTask {
+                    let result = try command(["/bin/sh", "-c", "/usr/bin/head -c 131072 /dev/zero >&2 && echo done"], timeout: 10)
+                    #expect(result.output == "done\n")
+                    #expect(result.errorOutput.utf8.count == 131072)
+                }
+            }
+            try await group.waitForAll()
+        }
+    }
     @Test func testClonePreservesExecutablePermissions() throws {
         let source = try file("source", Data("code".utf8))
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: source.path)
@@ -110,6 +122,19 @@ final class RegionTests: TemporaryTests {
         #expect((try regionSettings("EUW", configuration: regionalConfiguration()).id) == ("EUW1"))
     }
     @Test func testUnknownRegionIsRejected() { #expect(throws: (any Error).self) { try regionSettings("MISSING", configuration: regionalConfiguration()) } }
+    @Test func unreadableCacheFallsBackToOfficialRegionConfiguration() throws {
+        let config = try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory)
+        _ = try file("user/Config/ClientConfiguration.json", Data("incomplete".utf8))
+        let info = try PropertyListSerialization.data(fromPropertyList: ["FileVersion": "installed"], format: .xml, options: 0)
+        _ = try file(riotAppName + "/Contents/Info.plist", info)
+        let runtime = RiotRuntime(config, api: { _, _, _, _ in
+            HTTPResult(200, ["userInfo": ["lol": ["cpid": "KR"]]])
+        }, fetch: { url in
+            #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.contains(URLQueryItem(name: "version", value: "installed")) == true)
+            return regionalConfiguration()
+        })
+        #expect(try Launcher(config, runtime: runtime).accountRegion(directory).id == "KR")
+    }
     @Test func testAbsentLiveChannelIsRejected() {
         var config = regionalConfiguration()
         config["tft.client_settings.version_sets"] = ["KR": "pbe-KR"]
@@ -186,6 +211,13 @@ final class PublicationTests: TemporaryTests {
     @Test func testInvalidChannelFailsBeforeMakingARequest() {
         #expect(throws: (any Error).self) { try publishedRelease(platform: "macos", channel: "pbe-KR") { _ in Issue.record("Unexpected request"); return [:] } }
     }
+    @Test func trailingNewlineAndUnsupportedPlatformFailBeforeFetch() {
+        for (platform, channel) in [("macos", "live-KR\n"), ("invalid", "live-KR")] {
+            #expect(throws: LauncherError.self) {
+                try publishedRelease(platform: platform, channel: channel) { _ in Issue.record("Unexpected request"); return [:] }
+            }
+        }
+    }
     @Test func testMismatchedMacAndWindowsReleasesFail() throws {
         let config = try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory)
         let runtime = RiotRuntime(config, api: { _, _, _, _ in HTTPResult(0) }, fetch: { url in
@@ -227,15 +259,29 @@ final class RuntimeStateTests: TemporaryTests {
     func pending() throws {
         try manager.writeState(["root": candidate.path, "manifest": "new", "pending": true, "previous_root": current.path, "previous_manifest": "old"])
     }
-    @Test func testRollbackRestoresThePreviousVersionAndRejectsTheCandidate() throws {
+    @Test func testRollbackRestoresThePreviousVersionAndAllowsRetry() throws {
         try pending()
         #expect((try manager.rollback()) == (resolved(current)))
         #expect((text(try manager.state()["manifest"])) == ("old"))
-        #expect((text(try manager.state()["rejected_manifest"])) == ("new"))
+        #expect(try manager.state()["rejected_manifest"] == nil)
     }
     @Test func testInvalidRuntimeRootIsRejected() {
         #expect(throws: (any Error).self) { try manager.selectedRoot(["root": "/Applications"]) }
         #expect(throws: (any Error).self) { try manager.selectedRoot(["root": directory.appendingPathComponent("runtimes/../../escape").path]) }
+    }
+    @Test func externalRuntimeLinksAreRejectedDuringSelectionAndCleanup() throws {
+        let external = directory.appendingPathComponent("external")
+        let target = try file("external/0000000000000001/runtime.json")
+        let releases = directory.appendingPathComponent("runtimes")
+        try remove(releases)
+        try FileManager.default.createSymbolicLink(at: releases, withDestinationURL: external)
+        #expect(throws: LauncherError.self) { try manager.selectedRoot(["root": releases.appendingPathComponent("0000000000000001").path]) }
+        try manager.writeState(["root": current.path])
+        try manager.confirm()
+        #expect(exists(target))
+        try remove(current)
+        try FileManager.default.createSymbolicLink(at: current, withDestinationURL: external)
+        #expect(throws: LauncherError.self) { try manager.selectedRoot([:]) }
     }
     @Test func testConfirmationWaitsUntilPreparationCompletes() throws {
         try pending()
@@ -264,6 +310,23 @@ final class RuntimeStateTests: TemporaryTests {
         #expect(throws: (any Error).self) { try manager.finishSetup(candidate, prepare: { _ in throw LauncherError("failed") }, restore: { $0 }) }
         #expect((text(try manager.state()["root"])) == (current.path))
         #expect((try manager.state()["pending"]) == nil)
+    }
+    @Test func unrecognizedSessionDataPreventsShutdown() throws {
+        let config = try Configuration(assets: directory, data: directory)
+        for payload: Any in [NSNull(), ["unknown": [:]]] {
+            let runtime = RiotRuntime(config, api: { method, _, _, _ in
+                #expect(method == "GET")
+                return HTTPResult(200, payload)
+            })
+            #expect(throws: LauncherError.self) { try runtime.quit() }
+        }
+    }
+    @Test func rejectedCandidateDoesNotRemoveThePreviousCopy() throws {
+        let marker = candidate.appendingPathComponent("existing")
+        try writeText("preserved", to: marker)
+        let manifest = "https://ks-foundation.secure.dyn.riotcdn.net/channels/public/releases/1234567890ABCDEF.manifest"
+        #expect(throws: (any Error).self) { try manager.prepareCandidate(current: current, manifest: manifest) }
+        #expect(try readText(marker) == "preserved")
     }
     @Test func testRunningGamePreventsShutdown() throws {
         let runtime = RiotRuntime(try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory), api: { method, _, _, _ in

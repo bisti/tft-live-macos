@@ -43,23 +43,6 @@ public struct Configuration {
         }
         return found
     }
-    public func prepareFiles() throws {
-        try makeDirectory(data)
-        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: data.path)
-        let override = data.appendingPathComponent("riot-sdk-host-override.json")
-        if !exists(override) {
-            try FileManager.default.copyItem(at: assets.appendingPathComponent(override.lastPathComponent), to: override)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: override.path)
-        }
-        let system = data.appendingPathComponent("sdk-host-system.yaml")
-        if !exists(system) {
-            let original = try readText(installedRiot().appendingPathComponent("Contents/Resources/system.yaml"))
-            var managed = original.replacingOccurrences(of: "(?m)^enable_self_update:.*$", with: "enable_self_update: false", options: .regularExpression)
-            if managed == original && !original.contains("enable_self_update: false") { managed += "\nenable_self_update: false\n" }
-            try writeText(managed, to: system)
-            try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: system.path)
-        }
-    }
     public func gamePath() throws -> URL {
         let saved = data.appendingPathComponent("install.json")
         if exists(saved) {
@@ -69,7 +52,7 @@ public struct Configuration {
         }
         let candidates = [FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Teamfight Tactics (Live).app"),
                           URL(fileURLWithPath: "/Applications/Teamfight Tactics (Live).app")]
-        return candidates.first { exists($0.appendingPathComponent("Contents/MacOS/TFTClient-Mac-Shipping")) && access($0.path, W_OK) == 0 } ?? candidates[0]
+        return candidates.first { isExecutableFile($0.appendingPathComponent("Contents/MacOS/TFTClient-Mac-Shipping")) && access($0.path, W_OK) == 0 } ?? candidates[0]
     }
     public func cachedConfiguration() throws -> JSON? {
         let path = data.appendingPathComponent("user/Config/ClientConfiguration.json")
@@ -81,6 +64,9 @@ public struct Configuration {
         return entries.max { number($0["updateTime"]) < number($1["updateTime"]) }.map { object($0["data"]) }
     }
     @discardableResult public func configureRegion(_ region: Region, manifest: String, version: String) throws -> Bool {
+        try configureRegion(region, manifest: manifest, version: version) { fputs($0 + "\n", stderr) }
+    }
+    @discardableResult func configureRegion(_ region: Region, manifest: String, version: String, report: (String) -> Void) throws -> Bool {
         let path = data.appendingPathComponent("riot-sdk-host-override.json")
         let original = try readJSON(path)
         var updated = original
@@ -100,7 +86,10 @@ public struct Configuration {
         entry["id"] = region.id
         entry["patch_url"] = manifest
         entry["dependencies"] = [Any]()
-        entry["region_data"] = ["available_regions": region.aliases, "default_region": region.id]
+        var regionData = object(entry["region_data"])
+        regionData["available_regions"] = region.aliases
+        regionData["default_region"] = region.id
+        entry["region_data"] = regionData
         platform["auto_patch"] = false
         platform["install_dir"] = "Teamfight Tactics (Live).app"
         platform["dependencies"] = [Any]()
@@ -109,14 +98,23 @@ public struct Configuration {
         publicConfig[liveProduct] = product
         updated["public"] = publicConfig
         let regionFile = data.appendingPathComponent("riot-region.txt")
-        let changed = try jsonData(original) != jsonData(updated) || (try? readText(regionFile).trimmingCharacters(in: .whitespacesAndNewlines)) != region.clientRegion
-        if try jsonData(original) != jsonData(updated) { try atomicJSON(updated, to: path) }
-        try writeText(region.clientRegion + "\n", to: regionFile)
-        var selection = region.json
-        selection["manifest"] = manifest
-        selection["version"] = version
-        try atomicJSON(selection, to: data.appendingPathComponent("selection.json"))
-        return changed
+        let encoded = try jsonData(updated)
+        let configChanged = try encoded != jsonData(original)
+        let regionChanged = (try? readText(regionFile).trimmingCharacters(in: .whitespacesAndNewlines)) != region.clientRegion
+        if configChanged { try atomicWrite(encoded, to: path) }
+        if regionChanged { try writeText(region.clientRegion + "\n", to: regionFile) }
+        // Keep the diagnostic snapshot available to existing tooling.
+        do {
+            var selection = region.json
+            selection["manifest"] = manifest
+            selection["version"] = version
+            let selectionFile = data.appendingPathComponent("selection.json")
+            let record = try jsonData(selection)
+            if (try? Data(contentsOf: selectionFile)) != record { try atomicWrite(record, to: selectionFile) }
+        } catch {
+            report("Unable to update selection.json: " + error.localizedDescription)
+        }
+        return configChanged || regionChanged
     }
 }
 

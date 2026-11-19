@@ -6,7 +6,8 @@ final class PreparationTests: TemporaryTests {
     func fixture(patch: @escaping () -> JSON, messages: @escaping (String) -> Void = { _ in }) throws -> Launcher {
         let config = try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory)
         try atomicJSON(["game_path": directory.appendingPathComponent("Game.app").path], to: directory.appendingPathComponent("install.json"))
-        _ = try file("Game.app/Contents/MacOS/TFTClient-Mac-Shipping")
+        let executable = try file("Game.app/Contents/MacOS/TFTClient-Mac-Shipping")
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
         _ = try file("user/Config/ClientConfiguration.json", jsonData(["public": [["updateTime": 1, "data": regionalConfiguration()]]]))
         let runtime = RiotRuntime(config, api: { method, route, _, _ in
             #expect(!route.contains("product-launcher"))
@@ -26,7 +27,10 @@ final class PreparationTests: TemporaryTests {
         let launcher = try fixture { self.ready() }
         let region = try regionSettings("NA1", configuration: regionalConfiguration())
         #expect(try !launcher.prepareGame(directory, region: region, release: Release(manifest: "manifest", version: "version")))
-        try remove(launcher.game.appendingPathComponent("Contents/MacOS/TFTClient-Mac-Shipping"))
+        let executable = launcher.game.appendingPathComponent("Contents/MacOS/TFTClient-Mac-Shipping")
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: executable.path)
+        #expect(throws: (any Error).self) { try launcher.prepareGame(directory, region: region, release: Release(manifest: "manifest", version: "version")) }
+        try remove(executable)
         #expect(throws: (any Error).self) { try launcher.prepareGame(directory, region: region, release: Release(manifest: "manifest", version: "version")) }
     }
     @Test func differentPatchRegionAndManifestFail() throws {
@@ -57,6 +61,18 @@ final class PreparationTests: TemporaryTests {
             return state
         }
         #expect(throws: (any Error).self) { try launcher.updateGame("manifest") }
+    }
+    @Test func resumedPatchReportsAnExistingError() throws {
+        var calls = 0
+        let launcher = try fixture {
+            calls += 1
+            if calls > 1 { return self.ready() }
+            var state = self.ready(state: "updating")
+            state["patch_status"] = ["error": "failed"]
+            return state
+        }
+        #expect(throws: LauncherError.self) { try launcher.updateGame("manifest") }
+        #expect(calls == 1)
     }
     @Test func progressDoesNotRepeatWhenPhasesReset() throws {
         var iteration = 0

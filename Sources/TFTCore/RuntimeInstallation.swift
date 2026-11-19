@@ -39,9 +39,11 @@ extension RiotRuntime {
         try copySharedTree(root.appendingPathComponent(riotAppName + "/Contents/Frameworks/Riot Client.app"), staged)
         try remove(backup)
         if exists(ui) { try move(ui, backup) }
-        try move(staged, ui)
-        do { try sign(host, deep: false); try verify(host) }
-        catch {
+        do {
+            try move(staged, ui)
+            try sign(host, deep: false)
+            try verify(host)
+        } catch {
             try remove(ui)
             if exists(backup) { try move(backup, ui) }
             throw error
@@ -69,6 +71,11 @@ extension RiotRuntime {
         try atomicWrite(plist, to: host.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Info.plist"))
         try installHostIcon(root)
         try shareInterface(root)
+        try recordHost(root, source: fileDigest(configuration.hostSource), icon: fileDigest(configuration.assets.appendingPathComponent("TFTLive.icns")))
+    }
+    private func recordHost(_ root: URL, source: String, icon: String) throws {
+        try atomicJSON(["source": source, "installed": fileDigest(root.appendingPathComponent(hostRelativePath)), "icon": icon],
+                       to: root.appendingPathComponent("host.json"))
     }
     public func refreshHost(_ current: URL) throws {
         let source = try fileDigest(configuration.hostSource)
@@ -87,7 +94,7 @@ extension RiotRuntime {
         guard rename(replacement.path, host.path) == 0 else { throw LauncherError("Unable to install the updated Swift host.") }
         try installHostIcon(current)
         try shareInterface(current)
-        try atomicJSON(["source": source, "installed": fileDigest(host), "icon": icon], to: marker)
+        try recordHost(current, source: source, icon: icon)
     }
     public func fingerprint(_ root: URL) throws -> String {
         let canonicalRoot = resolved(root)
@@ -98,7 +105,7 @@ extension RiotRuntime {
                 var info = stat()
                 try require(lstat(path.path, &info) == 0, "A Riot component is missing.")
                 var entry = "\(path.path.dropFirst(canonicalRoot.path.count))\u{0}\(info.st_mode) \(info.st_size) \(info.st_mtimespec.tv_sec) \(info.st_mtimespec.tv_nsec) \(info.st_ctimespec.tv_sec) \(info.st_ctimespec.tv_nsec)"
-                if isSymlink(path) { entry += try FileManager.default.destinationOfSymbolicLink(atPath: path.path) }
+                if info.st_mode & S_IFMT == S_IFLNK { entry += try FileManager.default.destinationOfSymbolicLink(atPath: path.path) }
                 digest.update(data: Data(entry.utf8))
             }
         }
@@ -112,8 +119,8 @@ extension RiotRuntime {
         let result = try command([root.appendingPathComponent(hostRelativePath).path, "--check-sdk", String(address, radix: 16)], timeout: 30)
         try require(result.output.trimmingCharacters(in: .whitespacesAndNewlines) == "windows", "Windows validation of the new SDK failed.")
     }
-    private func health(_ root: URL, address: UInt64) throws {
-        try atomicJSON(["address": address, "fingerprint": fingerprint(root)], to: root.appendingPathComponent("runtime-health.json"))
+    private func health(_ root: URL, address: UInt64, fingerprint: String) throws {
+        try atomicJSON(["address": address, "fingerprint": fingerprint], to: root.appendingPathComponent("runtime-health.json"))
     }
     public func prepareRuntime(into destination: URL? = nil, source: URL? = nil) throws -> URL {
         let destination = destination ?? configuration.initialRuntime
@@ -140,15 +147,17 @@ extension RiotRuntime {
     }
     public func ensureHealthy(_ current: URL) throws -> URL {
         let backup = URL(fileURLWithPath: current.path + ".repair-backup")
+        try require(!isSymlink(backup), "The Riot repair backup directory is invalid.")
         if !exists(current) && exists(backup) { try move(backup, current) }
         do {
             try refreshHost(current)
             let address = try RuntimeMetadata.read(from: current).address
             let marker = current.appendingPathComponent("runtime-health.json")
             let record = (try? readJSON(marker)) ?? [:]
-            if text(record["fingerprint"]) != (try fingerprint(current)) || (record["address"] as? NSNumber)?.uint64Value != address {
+            let signature = try fingerprint(current)
+            if text(record["fingerprint"]) != signature || (record["address"] as? NSNumber)?.uint64Value != address {
                 try validate(current, address: address)
-                try health(current, address: address)
+                try health(current, address: address, fingerprint: signature)
             }
             try remove(backup)
             return current
@@ -174,7 +183,7 @@ extension RiotRuntime {
         let destination = sameVersion ? current : configuration.initialRuntime
         try replaceDirectory(prepared, destination) {
             try self.validate(destination, address: address)
-            try self.health(destination, address: address)
+            try self.health(destination, address: address, fingerprint: self.fingerprint(destination))
             if !sameVersion { try self.writeState(["root": destination.path, "manifest": NSNull()]) }
         }
         return destination

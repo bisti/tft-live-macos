@@ -1,6 +1,11 @@
 import Foundation
 import Darwin
 
+struct RuntimeIncompatibility: Error, LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
+}
+
 struct BinaryData {
     var bytes: Data
     func integer(_ offset: Int, _ count: Int, bigEndian: Bool = false) throws -> UInt64 {
@@ -45,7 +50,7 @@ public func patchWindowsSDK(_ path: URL) throws -> UInt64 {
                 let name = try image.name(section)
                 let address = try image.integer(section + 32, 8)
                 let length = try image.integer(section + 40, 8)
-                try require(address <= UInt64(Int64.max) && length <= UInt64(Int.max), "The SDK section is out of range.")
+                try require(address <= UInt64(Int64.max) && length <= UInt64(Int64.max) - address, "The SDK section is out of range.")
                 sections[name] = (Int64(address), Int(length), Int(try image.integer(section + 48, 4)))
             }
         }
@@ -56,7 +61,7 @@ public func patchWindowsSDK(_ path: URL) throws -> UInt64 {
                 "The SDK sections are truncated.")
     let stringBytes = image.bytes.subdata(in: strings.offset..<(strings.offset + strings.length))
     guard let windows = stringBytes.range(of: Data([0] + Array("windows".utf8) + [0])) else {
-        throw LauncherError("The SDK does not provide the expected Windows platform.")
+        throw RuntimeIncompatibility(message: "The SDK does not provide the expected Windows platform.")
     }
     let windowsAddress = strings.address + Int64(windows.lowerBound + 1)
     var candidates: [(Int, Int64)] = []
@@ -68,16 +73,22 @@ public func patchWindowsSDK(_ path: URL) throws -> UInt64 {
         let address = code.address + Int64(offset - code.offset)
         var immediate = Int64((adrp >> 29) & 3) | Int64((adrp >> 5) & 0x7ffff) << 2
         if immediate & (1 << 20) != 0 { immediate -= 1 << 21 }
-        let target = (address & ~4095) + (immediate << 12) + Int64((add >> 10) & 4095)
+        let displacement = (immediate << 12) + Int64((add >> 10) & 4095)
+        let (target, overflow) = (address & ~4095).addingReportingOverflow(displacement)
+        guard !overflow, target >= strings.address else { continue }
         let index = target - strings.address
-        if index >= 0 && index <= Int64(stringBytes.count - 4), stringBytes.subdata(in: Int(index)..<(Int(index) + 4)) == Data([109, 97, 99, 0]) {
+        if index <= Int64(stringBytes.count - 4), stringBytes.subdata(in: Int(index)..<(Int(index) + 4)) == Data([109, 97, 99, 0]) {
             candidates.append((offset, address))
         }
     }
-    try require(candidates.count == 1, "The new SDK platform function cannot be identified unambiguously.")
+    guard candidates.count == 1 else {
+        throw RuntimeIncompatibility(message: "The new SDK platform function cannot be identified unambiguously.")
+    }
     let (offset, address) = candidates[0]
     let pages = ((windowsAddress & ~4095) - (address & ~4095)) / 4096
-    try require(pages >= -(1 << 20) && pages < 1 << 20, "The SDK platform string is out of range.")
+    guard pages >= -(1 << 20) && pages < 1 << 20 else {
+        throw RuntimeIncompatibility(message: "The SDK platform string is out of range.")
+    }
     let immediate = UInt32(truncatingIfNeeded: pages) & 0x1fffff
     try image.write32(offset, 0x90000000 | ((immediate & 3) << 29) | ((immediate >> 2) << 5))
     try image.write32(offset + 4, 0x91000000 | (UInt32(windowsAddress & 4095) << 10))
@@ -96,6 +107,7 @@ public func thinBinary(_ path: URL) throws {
     let wide = magic == 0xcafebabf
     let entrySize = wide ? 32 : 20
     let entries = BinaryData(bytes: try input.read(upToCount: count * entrySize) ?? Data())
+    try require(entries.bytes.count == count * entrySize, "The Mach-O architecture table is truncated.")
     var slices: [(UInt64, UInt64)] = []
     for index in 0..<count {
         let entry = index * entrySize
@@ -104,12 +116,17 @@ public func thinBinary(_ path: URL) throws {
                            try entries.integer(entry + (wide ? 16 : 12), wide ? 8 : 4, bigEndian: true)))
         }
     }
-    try require(slices.count == 1, "Component does not have a unique Apple Silicon slice.")
+    guard slices.count == 1 else {
+        throw RuntimeIncompatibility(message: "Component does not have a unique Apple Silicon slice.")
+    }
     let (offset, size) = slices[0]
     let total = try input.seekToEnd()
-    try require(offset >= UInt64(8 + count * entrySize) && offset <= total && size <= total - offset, "Invalid Apple Silicon slice.")
+    try require(offset >= UInt64(8 + count * entrySize) && offset <= total && size >= 8 && size <= total - offset, "Invalid Apple Silicon slice.")
     try input.seek(toOffset: offset)
-    let temporary = URL(fileURLWithPath: path.path + ".arm64-tmp")
+    let slice = BinaryData(bytes: try input.read(upToCount: 8) ?? Data())
+    try require(try slice.integer(0, 4) == 0xfeedfacf && slice.integer(4, 4) == 0x100000c, "Invalid Apple Silicon slice header.")
+    try input.seek(toOffset: offset)
+    let temporary = path.deletingLastPathComponent().appendingPathComponent(".arm64-" + UUID().uuidString)
     defer { try? remove(temporary) }
     FileManager.default.createFile(atPath: temporary.path, contents: nil)
     let output = try FileHandle(forWritingTo: temporary)
@@ -131,11 +148,14 @@ public func thinTree(_ root: URL) throws {
     for path in files(root) where !isSymlink(path) {
         guard let values = try? path.resourceValues(forKeys: [.isRegularFileKey]), values.isRegularFile == true else { continue }
         let input = try FileHandle(forReadingFrom: path)
-        let header = BinaryData(bytes: try input.read(upToCount: 8) ?? Data())
+        let header = BinaryData(bytes: try input.read(upToCount: 32) ?? Data())
         try input.close()
         if header.bytes.count < 8 { continue }
         let magic = try header.integer(0, 4, bigEndian: true)
-        if magic == 0xcffaedfe { try require(try header.integer(4, 4) == 0x100000c, "Component has no Apple Silicon slice. " + path.path) }
+        if magic == 0xcffaedfe, try header.integer(4, 4) != 0x100000c {
+            try require(header.bytes.count == 32, "The Mach-O component is truncated.")
+            throw RuntimeIncompatibility(message: "Component has no Apple Silicon slice. " + path.path)
+        }
         if magic == 0xcafebabe || magic == 0xcafebabf {
             try thinBinary(path)
             try command(["/usr/bin/codesign", "--force", "--deep", "--sign", "-", "--preserve-metadata=entitlements", path.path])

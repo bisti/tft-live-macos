@@ -23,6 +23,10 @@ An independent project, unaffiliated with Riot Games.
 The launcher detects your account server, checks its live release, and installs or
 updates the TFT Mac client. The application and its host are native Swift executables.
 
+Closing the preparation window lets setup continue in the background. Open TFT Live
+again to see progress. If setup fails, the window reopens with the error. Choosing
+Quit during preparation lets setup and logging finish before the launcher exits.
+
 The application is ad-hoc signed and has no Apple notarization. macOS may ask
 you to allow it when opening it for the first time.
 
@@ -46,16 +50,30 @@ versions, including the initial runtime once superseded, are removed automatical
 
 A new runtime is confirmed after account-region checks and successful preparation
 of the TFT installation. Setup failures restore the previous runtime and retry
-preparation. Cached components are checked for changes at startup. Damaged bundles
-are rebuilt while preserving the user's settings and sign-in data.
+preparation. A temporary download, disk or sign-in failure allows another attempt
+on the next launch. A confirmed binary incompatibility defers that specific
+manifest for 24 hours. Cached components are checked for changes at startup.
+Damaged bundles are rebuilt while preserving the user's settings and sign-in data.
 
 ## Local data
 
 Settings, sign-in data, and logs are stored in
 `~/Library/Application Support/TFT Live` for the current macOS user.
 
+The launcher updates its configuration templates when a profile is reopened.
+It keeps local changes when merging new defaults. If a local edit conflicts
+with a Riot system YAML update, the launcher reports the conflict and keeps
+the local file. For older profiles with no recorded template, it preserves
+settings whose origin it cannot identify. The launcher still manages the
+active patch URL, region and shared Mac launch configuration for all three
+platform aliases.
+
 An existing writable TFT installation can be reused. A new installation uses
 `~/Applications/Teamfight Tactics (Live).app`.
+
+The diagnostic file `selection.json` records the region, version set, manifest
+and release version selected during configuration. A warning means the snapshot
+could be stale. Setup can still finish.
 
 The main log is `~/Library/Application Support/TFT Live/launcher.log`.
 Launcher and host console logs use 10 MiB files with three rotated archives.
@@ -73,7 +91,7 @@ Building requires Swift 6 or later and Apple developer tools on an Apple Silicon
 ```
 
 The output includes `dist/TFT Live.app`, `dist/TFT-Live-AppleSilicon.zip`, and its
-SHA-256 checksum. Build output is contained in `dist/`.
+SHA-256 checksum. SwiftPM keeps its compilation cache in `.build/`.
 
 The interface, command-line launcher, SDK host, configuration, runtime updates,
 repair, logging, and ARM64 component adaptation are implemented in Swift.
@@ -81,6 +99,8 @@ The application uses the Swift libraries provided by macOS.
 
 Open `dist/TFT Live.app` to launch the local build. To see preparation output in a terminal,
 run `"./dist/TFT Live.app/Contents/MacOS/TFTLiveCLI"`.
+Add `--log-output` to write progress to `launcher.log`. If a log write fails,
+the CLI prints the affected message to standard output and the error to standard error.
 
 Riot components and resources are prepared on each user's machine from their
 installation or from Riot services.
@@ -96,16 +116,17 @@ ARM64 SDK adaptation, preparation checks, rollback, transactional replacement,
 log rotation, and runtime metadata. The test script locates the testing
 framework supplied by Xcode or the Apple command-line tools.
 
-The optional integration test uses the application built in `dist/`. It prepares components from the installed Riot Client,
-removes and repairs the SDK and UI, starts a headless Swift host, and downloads
-a current Riot runtime. It requires network access and temporary disk space.
+The optional integration tests use the application built in `dist/`. They check
+console output from a surviving child process, prepare installed Riot components,
+remove and repair the SDK and UI, start a headless Swift host, and download
+a current Riot runtime. They require network access and temporary disk space.
 
 ```sh
 TFT_NATIVE_INTEGRATION=1 ./test.sh --filter IntegrationTests
 ```
 
-End-to-end preparation is checked on EUW1. Regional configuration and matching
-live releases are obtained from Riot services.
+The integration suite checks the NA1 release using Riot services. Testing the Play
+button and game startup requires a separate run with a signed-in account.
 
 ## License and third-party components
 

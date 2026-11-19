@@ -1,20 +1,18 @@
 import Foundation
 import Darwin
 
-private struct IncompatibleRuntime: Error, LocalizedError {
-    let cause: Error
-    var errorDescription: String? { cause.localizedDescription }
-}
+private let runtimeManifestPattern = "https://ks-foundation\\.secure\\.dyn\\.riotcdn\\.net/channels/public/releases/[A-Fa-f0-9]{16}\\.manifest"
+private let runtimeIncompatibilityDelay: TimeInterval = 24 * 60 * 60
 
 extension RiotRuntime {
     public func officialConfiguration(_ current: URL) throws -> JSON {
         let info = try PropertyListSerialization.propertyList(from: Data(contentsOf: current.appendingPathComponent(riotAppName + "/Contents/Info.plist")), format: nil) as? JSON ?? [:]
         var version = text(info["FileVersion"])
         let cached = data.appendingPathComponent("user/Config/ClientConfiguration.json")
-        if exists(cached) {
-            let entries = objects(try readJSON(cached)["public"]).filter { text(object($0["params"])["patchline"]) == "KeystoneFoundationLiveMac" }
+        if let cache = try? readJSON(cached) {
+            let entries = objects(cache["public"]).filter { text(object($0["params"])["patchline"]) == "KeystoneFoundationLiveMac" }
             if let latest = entries.max(by: { number($0["updateTime"]) < number($1["updateTime"]) }),
-               let value = object(latest["params"])["version"] as? String { version = value }
+               let value = object(latest["params"])["version"] as? String, !value.isEmpty { version = value }
         }
         let region = (try? readText(data.appendingPathComponent("riot-region.txt")).trimmingCharacters(in: .whitespacesAndNewlines)) ?? "NA"
         var url = URLComponents(string: "https://clientconfig.rpg.riotgames.com/api/v1/config/public")!
@@ -24,7 +22,7 @@ extension RiotRuntime {
     }
     public func officialManifest(_ current: URL) throws -> String {
         let manifest = text(try officialConfiguration(current)["keystone.self_update.manifest_url"])
-        try require(matches(manifest, "https://ks-foundation\\.secure\\.dyn\\.riotcdn\\.net/channels/public/releases/[A-Fa-f0-9]{16}\\.manifest"), "The Riot update manifest is invalid.")
+        try require(matches(manifest, runtimeManifestPattern), "The Riot update manifest is invalid.")
         return manifest
     }
     public func downloadRuntime(current: URL, stage: URL, manifest: String) throws -> URL {
@@ -101,7 +99,7 @@ extension RiotRuntime {
                 if text(state.json["combined_patch_state"]) == "up_to_date" { return destination }
                 let patch = object(state.json["patch_status"])
                 try require(patch["error"] == nil || patch["error"] is NSNull, "The Riot runtime download failed.")
-                let progress = Int(number(object(patch["progress"])["progress"])) / 10 * 10
+                let progress = progressDecile(number(object(patch["progress"])["progress"]))
                 if progress > lastProgress { report("Updating Riot components, \(progress) %"); lastProgress = progress }
             }
             try require(process.isRunning, "The Riot patcher stopped during the download.")
@@ -110,41 +108,54 @@ extension RiotRuntime {
         throw LauncherError("The Riot runtime download timed out.")
     }
     public func prepareCandidate(current: URL, manifest: String) throws -> URL {
+        guard matches(manifest, runtimeManifestPattern), let url = URL(string: manifest) else {
+            throw LauncherError("The Riot update manifest is invalid.")
+        }
         let releases = data.appendingPathComponent("runtimes")
+        let identifier = url.deletingPathExtension().lastPathComponent
+        let candidate = try selectedRoot(["root": releases.appendingPathComponent(identifier).path])
         try makeDirectory(releases)
-        let identifier = URL(string: manifest)!.deletingPathExtension().lastPathComponent
-        try require(matches(identifier, "[A-Fa-f0-9]{16}"), "The Riot update identifier is invalid.")
-        let candidate = releases.appendingPathComponent(identifier)
         if let ready = try? RuntimeMetadata.read(from: candidate), ready.manifest == manifest {
             do { try refreshHost(candidate); try validate(candidate, address: ready.address); return candidate } catch { }
         }
         try require(resolved(candidate) != resolved(current), "The active Riot runtime cannot be replaced while preparing an update.")
-        try remove(candidate)
         let stage = data.appendingPathComponent("runtime-stage-" + UUID().uuidString)
         try makeDirectory(stage)
         defer { try? remove(stage) }
         let downloaded = try downloadRuntime(current: current, stage: stage, manifest: manifest)
         let prepared = stage.appendingPathComponent("prepared")
-        do { _ = try prepareRuntime(into: prepared, source: downloaded) }
-        catch { throw IncompatibleRuntime(cause: error) }
+        _ = try prepareRuntime(into: prepared, source: downloaded)
         let address = try RuntimeMetadata.read(from: prepared).address
         try RuntimeMetadata(address: address, manifest: manifest).write(to: prepared)
-        try move(prepared, candidate)
+        try replaceDirectory(prepared, candidate) { try self.validate(candidate, address: address) }
         return candidate
     }
     public func ensureRuntime() throws -> URL {
+        try ensureRuntime(prepare: prepareCandidate)
+    }
+    func ensureRuntime(prepare: (URL, String) throws -> URL) throws -> URL {
         var state = try state()
-        if state["pending"] as? Bool == true { _ = try rollback(); state = try self.state() }
+        if state["pending"] as? Bool == true {
+            try quit()
+            return try rollback() ?? selectedRoot(self.state())
+        }
         let current = try selectedRoot(state)
         var manifest = ""
         do {
             manifest = try officialManifest(current)
             if text(state["manifest"]) == manifest { return current }
-            if text(state["rejected_manifest"]) == manifest && Date().timeIntervalSince1970 - number(state["rejected_at"]) < 86400 {
-                report("Keeping the previous compatible Riot components.")
+            // Older states recorded both temporary failures and incompatibilities as rejections.
+            let elapsed = Date().timeIntervalSince1970 - number(state["incompatible_at"])
+            if text(state["incompatible_manifest"]) == manifest && (0..<runtimeIncompatibilityDelay).contains(elapsed) {
+                report("Keeping the previous Riot components because the new runtime is incompatible.")
                 return current
             }
-            let candidate = try prepareCandidate(current: current, manifest: manifest)
+            let candidate = try prepare(current, manifest)
+            if candidate.path == current.path {
+                state["manifest"] = manifest
+                try writeState(state)
+                return current
+            }
             try quit()
             try writeState(["root": candidate.path, "manifest": manifest, "pending": true,
                             "previous_root": current.path, "previous_manifest": state["manifest"] ?? NSNull()])
@@ -152,10 +163,10 @@ extension RiotRuntime {
             return candidate
         } catch {
             // Retain the selected runtime when an update cannot be prepared.
-            if error is IncompatibleRuntime && !manifest.isEmpty {
-                state["rejected_manifest"] = manifest
-                state["rejected_at"] = Date().timeIntervalSince1970
-                try writeState(state)
+            if error is RuntimeIncompatibility && !manifest.isEmpty {
+                state["incompatible_manifest"] = manifest
+                state["incompatible_at"] = Date().timeIntervalSince1970
+                try? writeState(state)
             }
             report("Riot update deferred. Keeping the compatible version. " + error.localizedDescription)
             return current

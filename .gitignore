@@ -1,27 +1,15 @@
-# Source, resources, documentation and native build tools.
-/*
-!/.gitignore
-!/README.md
-!/LICENSE
-!/THIRD_PARTY_NOTICES.md
-!/Package.swift
-!/build.sh
-!/test.sh
-!/Sources/
-!/Tests/
-!/Resources/
-/Sources/**
-!/Sources/TFTCore/
-!/Sources/SDKHost/
-!/Sources/TFTLiveCLI/
-!/Sources/TFTLiveApp/
-!/Sources/TFTCore/*.swift
-!/Sources/SDKHost/*.swift
-!/Sources/TFTLiveCLI/*.swift
-!/Sources/TFTLiveApp/*.swift
-/Tests/**
-!/Tests/TFTCoreTests/
-!/Tests/TFTCoreTests/*.swift
-/Resources/*
-!/Resources/riot-sdk-host-override.json
-!/Resources/TFTLive.png
+# Build output and local caches
+/.build/
+/.cache/
+/dist/
+
+# App bundles left at the repository root by older build scripts
+/TFT Live.app/
+/TFT Live.app.new/
+/TFT Live.app.previous/
+/TFT SDK Host arm64.app/
+
+# macOS metadata and Xcode user settings
+.DS_Store
+._*
+xcuserdata/

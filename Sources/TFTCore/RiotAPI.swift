@@ -78,6 +78,7 @@ public struct Release: Equatable {
 }
 public func publishedRelease(platform: String, channel: String, fetch: (URL) throws -> JSON) throws -> Release {
     try require(matches(channel, "live-[A-Z0-9]+"), "The requested TFT channel is invalid.")
+    try require(["macos", "windows"].contains(platform), "The requested TFT platform is invalid.")
     let url = URL(string: "https://sieve.services.riotcdn.net/api/v1/products/teamfighttactics/version-sets/" + channel
                   + "?q%5Bartifact_type_id%5D=client&q%5Bplatform%5D=" + platform + "&q%5Bpublished%5D=true")!
     let releases = objects(try fetch(url)["releases"])

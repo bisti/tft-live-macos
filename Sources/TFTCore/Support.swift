@@ -7,7 +7,14 @@ public func object(_ value: Any?) -> JSON { value as? JSON ?? [:] }
 public func objects(_ value: Any?) -> [JSON] { value as? [JSON] ?? [] }
 public func text(_ value: Any?) -> String { value as? String ?? "" }
 public func number(_ value: Any?) -> Double { (value as? NSNumber)?.doubleValue ?? 0 }
+func progressDecile(_ percent: Double) -> Int {
+    Int(min(100, max(0, percent))) / 10 * 10
+}
 public func exists(_ path: URL) -> Bool { FileManager.default.fileExists(atPath: path.path) }
+func isExecutableFile(_ path: URL) -> Bool {
+    var info = stat()
+    return stat(path.path, &info) == 0 && info.st_mode & S_IFMT == S_IFREG && access(path.path, X_OK) == 0
+}
 public func resolved(_ path: URL) -> URL {
     var current = path.standardizedFileURL
     var suffix: [String] = []
@@ -27,7 +34,7 @@ public func resolved(_ path: URL) -> URL {
     }
 }
 public func matches(_ value: String, _ pattern: String) -> Bool {
-    value.range(of: "^(?:" + pattern + ")$", options: .regularExpression) != nil
+    value.range(of: "^(?:" + pattern + ")\\z", options: .regularExpression) != nil
 }
 public struct LauncherError: Error, LocalizedError {
     public let message: String
@@ -92,8 +99,9 @@ public struct CommandResult {
     }
 }
 @discardableResult public func command(_ arguments: [String], checked: Bool = true, timeout: TimeInterval? = nil) throws -> CommandResult {
+    guard let executable = arguments.first else { throw LauncherError("No executable was specified.") }
     let process = Process()
-    process.executableURL = URL(fileURLWithPath: arguments[0])
+    process.executableURL = URL(fileURLWithPath: executable)
     process.arguments = Array(arguments.dropFirst())
     let pipe = Pipe()
     let diagnostics = Pipe()
@@ -101,15 +109,21 @@ public struct CommandResult {
     process.standardError = diagnostics
     process.standardInput = FileHandle.nullDevice
     try process.run()
-    let expiration = DispatchWorkItem {
-        if process.isRunning { kill(process.processIdentifier, SIGKILL) }
+    let finished = DispatchSemaphore(value: 0)
+    if let timeout {
+        Thread.detachNewThread {
+            if finished.wait(timeout: .now() + timeout) == .timedOut, process.isRunning {
+                kill(process.processIdentifier, SIGKILL)
+            }
+        }
     }
-    if let timeout { DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: expiration) }
-    defer { expiration.cancel() }
+    defer { finished.signal() }
     let errors = ResultBox<Data>()
     let reader = DispatchGroup()
     reader.enter()
-    DispatchQueue.global().async {
+    // The caller can already be blocking a Swift concurrency worker.
+    // Drain stderr independently so both pipes can make progress under load.
+    Thread.detachNewThread {
         errors.store(.success(diagnostics.fileHandleForReading.readDataToEndOfFile()))
         reader.leave()
     }
@@ -119,7 +133,7 @@ public struct CommandResult {
     let result = CommandResult(status: process.terminationStatus, output: String(decoding: output, as: UTF8.self),
                                errorOutput: String(decoding: try errors.get(), as: UTF8.self))
     if checked && result.status != 0 {
-        throw LauncherError(URL(fileURLWithPath: arguments[0]).lastPathComponent + " failed. " + String((result.output + result.errorOutput).suffix(2000)))
+        throw LauncherError(URL(fileURLWithPath: executable).lastPathComponent + " failed. " + String((result.output + result.errorOutput).suffix(2000)))
     }
     return result
 }

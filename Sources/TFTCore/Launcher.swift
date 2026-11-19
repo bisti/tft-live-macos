@@ -76,24 +76,21 @@ public final class Launcher {
                         "Finish selecting a server in Riot, then reopen TFT Live.")
             region = selected[0]
         }
-        if let cached = try configuration.cachedConfiguration(), let settings = try? regionSettings(region, configuration: cached) {
+        if let cached = try? configuration.cachedConfiguration(), let settings = try? regionSettings(region, configuration: cached) {
             return settings
         }
         return try regionSettings(region, configuration: runtime.officialConfiguration(current))
     }
     public func liveRelease(_ region: Region) throws -> Release {
         // Both publications must agree before a regional release can be selected.
-        let macResult = ResultBox<Release>()
         let windowsResult = ResultBox<Release>()
-        let group = DispatchGroup()
-        for (platform, result) in [("macos", macResult), ("windows", windowsResult)] {
-            group.enter()
-            DispatchQueue.global().async {
-                result.store(Result { try publishedRelease(platform: platform, channel: region.versionSet, fetch: self.runtime.fetch) })
-                group.leave()
-            }
+        let finished = DispatchSemaphore(value: 0)
+        Thread.detachNewThread {
+            windowsResult.store(Result { try publishedRelease(platform: "windows", channel: region.versionSet, fetch: self.runtime.fetch) })
+            finished.signal()
         }
-        group.wait()
+        let macResult = Result { try publishedRelease(platform: "macos", channel: region.versionSet, fetch: runtime.fetch) }
+        finished.wait()
         let mac = try macResult.get()
         let windows = try windowsResult.get()
         try require(mac.version == windows.version, "The Mac and Windows releases for " + region.versionSet + " are still out of sync.")
@@ -123,20 +120,20 @@ public final class Launcher {
                     continue
                 }
                 let patch = object(state["patch_status"])
+                if requested || combined == "updating" {
+                    try require(state["user_cancelled_patching"] as? Bool != true, "TFT installation was interrupted. Reopen TFT Live to resume.")
+                    try require(patch["error"] == nil || patch["error"] is NSNull, "TFT update failed. Reopen TFT Live to retry.")
+                }
                 if combined == "updating" {
                     let progress = object(patch["progress"])
                     let percent = number(progress["progress"])
-                    let shown = Int(percent) / 10 * 10
+                    let shown = progressDecile(percent)
                     if shown > lastShown { report("  \(shown) %"); lastShown = shown }
                     let activity = try jsonData([progress["phase"] ?? NSNull(), percent, object(progress["update"])["downloaded_bytes"] ?? NSNull(),
                                                  object(progress["update"])["written_bytes"] ?? NSNull()])
                     if activity != lastActivity { deadline = monotonic() + 600; lastActivity = activity }
                 }
                 if combined == "bad_install_path" && monotonic() - started > 30 { throw LauncherError("The Riot component does not recognize the TFT installation.") }
-                if requested {
-                    try require(state["user_cancelled_patching"] as? Bool != true, "TFT installation was interrupted. Reopen TFT Live to resume.")
-                    try require(patch["error"] == nil || patch["error"] is NSNull, "TFT update failed. Reopen TFT Live to retry.")
-                }
             }
             try require(monotonic() < deadline, "The TFT update has stopped progressing. Reopen TFT Live.")
             pause(2)
@@ -161,7 +158,7 @@ public final class Launcher {
         let loaded = object(patch.json["configuration"])
         try require(patch.status == 200 && text(loaded["patch_url"]) == release.manifest && text(loaded["id"]) == region.id
                     && text(patch.json["combined_patch_state"]) == "up_to_date", "TFT preparation did not confirm the requested live release and server.")
-        try require(exists(game.appendingPathComponent("Contents/MacOS/TFTClient-Mac-Shipping")), "The Riot patcher did not install the expected TFT Mac client.")
+        try require(isExecutableFile(game.appendingPathComponent("Contents/MacOS/TFTClient-Mac-Shipping")), "The Riot patcher did not install the expected TFT Mac client.")
         return false
     }
     public func run() throws {
@@ -173,21 +170,30 @@ public final class Launcher {
         defer { flock(lock, LOCK_UN); close(lock) }
         if flock(lock, LOCK_EX | LOCK_NB) != 0 { report("TFT launch is already in progress."); return }
         if gameIsRunning(api("GET", sessionRoute).json) { report("TFT is already running. Updates will be checked on the next launch."); return }
-        try configuration.prepareFiles()
+        try configuration.prepareFiles(report: report, beforeChangingFiles: { try runtime.quit() })
         var state = try runtime.state()
-        if text(state["root"]).isEmpty && !exists(configuration.initialRuntime.appendingPathComponent("runtime.json")) { _ = try runtime.prepareRuntime() }
-        if state["pending"] as? Bool == true { try runtime.quit(); _ = try runtime.rollback(); state = try runtime.state() }
-        let current = try runtime.ensureHealthy(runtime.selectedRoot(state))
+        let interruptedUpdate = state["pending"] as? Bool == true
+        if interruptedUpdate {
+            try runtime.quit()
+            _ = try runtime.rollback()
+            state = try runtime.state()
+            report("Restored the previous Riot components after an interrupted update.")
+        }
+        let selected = try runtime.selectedRoot(state)
+        if text(state["root"]).isEmpty && !exists(selected) && !exists(URL(fileURLWithPath: selected.path + ".repair-backup")) {
+            _ = try runtime.prepareRuntime(into: selected)
+        }
+        let current = try runtime.ensureHealthy(selected)
         try runtime.wire(current)
         report("Sign in to Riot to prepare TFT live.")
         try connect(current)
         let region = try accountRegion(current)
         let release = try liveRelease(region)
         report("Live version " + region.id + " — " + release.version)
-        let changed = try configuration.configureRegion(region, manifest: release.manifest, version: release.version)
+        let changed = try configuration.configureRegion(region, manifest: release.manifest, version: release.version, report: report)
         let loaded = object(api("GET", patchRoute).json["configuration"])
         if changed || (!loaded.isEmpty && (text(loaded["patch_url"]) != release.manifest || text(loaded["id"]) != region.id)) { try runtime.quit() }
-        let candidate = try runtime.ensureRuntime()
+        let candidate = try interruptedUpdate ? current : runtime.ensureRuntime()
         let running = try runtime.finishSetup(candidate, prepare: { root in
             try self.connect(root)
             return try self.prepareGame(root, region: region, release: release)

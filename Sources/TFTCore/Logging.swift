@@ -7,6 +7,7 @@ public final class RotatingLog {
     public init(_ path: URL, limit: Int = 10 * 1024 * 1024) { self.path = path; self.limit = limit }
 
     public func append(_ data: Data) throws {
+        try require(limit > 0, "The log size limit must be positive.")
         let lock = open(path.path + ".lock", O_CREAT | O_RDWR | O_CLOEXEC, 0o600)
         guard lock >= 0 else { throw LauncherError("Unable to open the log lock.") }
         defer { flock(lock, LOCK_UN); close(lock) }
@@ -28,7 +29,10 @@ public final class RotatingLog {
             let output = try FileHandle(forWritingTo: path)
             defer { try? output.close() }
             try output.seekToEnd()
-            if count > 0 { try output.write(contentsOf: data.subdata(in: offset..<(offset + count))) }
+            if count > 0 {
+                let start = data.startIndex + offset
+                try output.write(contentsOf: data[start..<(start + count)])
+            }
             offset += count
         } while offset < data.count
     }
@@ -36,28 +40,39 @@ public final class RotatingLog {
 }
 
 public func trimLog(_ path: URL, limit: Int) throws {
-    let size = (try FileManager.default.attributesOfItem(atPath: path.path)[.size] as? NSNumber)?.intValue ?? 0
+    try require(limit >= 0, "The log size limit must be nonnegative.")
+    let attributes = try FileManager.default.attributesOfItem(atPath: path.path)
+    let size = (attributes[.size] as? NSNumber)?.intValue ?? 0
     if size <= limit { return }
     let handle = try FileHandle(forUpdating: path)
-    defer { try? handle.close() }
     try handle.seek(toOffset: UInt64(size - limit))
     let tail = try handle.read(upToCount: limit) ?? Data()
     try handle.seek(toOffset: 0)
     try handle.write(contentsOf: tail)
     try handle.truncate(atOffset: UInt64(tail.count))
+    try handle.close()
+    if let date = attributes[.modificationDate] as? Date {
+        try FileManager.default.setAttributes([.modificationDate: date], ofItemAtPath: path.path)
+    }
 }
 
 public func pruneLogs(_ data: URL) throws {
     let root = data.appendingPathComponent("logs")
-    let logs = files(root).filter { $0.pathExtension == "log" && !isSymlink($0) && isInside($0, root) }
-    for group in Dictionary(grouping: logs, by: { $0.deletingLastPathComponent() }).values {
-        let newest = group.sorted {
-            let left = (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            let right = (try? $1.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast
-            return left > right
-        }
-        for (index, path) in newest.enumerated() {
-            if index < 3 { try trimLog(path, limit: 10 * 1024 * 1024) } else { try remove(path) }
+    guard !isSymlink(root) else { return }
+    let logs = try files(root).compactMap { path -> (path: URL, date: Date)? in
+        guard path.pathExtension == "log" else { return nil }
+        let info = try path.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .contentModificationDateKey])
+        guard info.isRegularFile == true, info.isSymbolicLink != true, isInside(path, root) else { return nil }
+        return (path, info.contentModificationDate ?? .distantPast)
+    }
+    for group in Dictionary(grouping: logs, by: { $0.path.deletingLastPathComponent() }).values {
+        let newest = group.sorted { $0.date == $1.date ? $0.path.path < $1.path.path : $0.date > $1.date }
+        for (index, log) in newest.enumerated() {
+            if index < 3 {
+                try trimLog(log.path, limit: 10 * 1024 * 1024)
+            } else {
+                try remove(log.path)
+            }
         }
     }
 }
