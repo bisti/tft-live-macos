@@ -24,7 +24,7 @@ do {
         try Launcher(configuration, runtime: runtime).run()
     }
 } catch is PreparationCancelled {
-    print("Riot component update cancelled.")
+    print("TFT preparation cancelled.")
     exit(0)
 } catch {
     fputs(error.localizedDescription + "\n", stderr)

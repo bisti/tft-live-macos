@@ -6,6 +6,12 @@ public let patchRoute = "/rnet-product-registry/v4/patch-states/products/teamfig
 public let patchRequestRoute = "/rnet-product-registry/v4/patch-requests/products/teamfighttactics/patchlines/live"
 public func gameIsRunning(_ sessions: JSON) -> Bool { sessions.values.contains { text(object($0)["productId"]) == "teamfighttactics" } }
 
+func patchActivity(_ progress: JSON) throws -> Data {
+    let update = object(progress["update"])
+    return try jsonData([progress["phase"] ?? NSNull(), progress["progress"] ?? NSNull(),
+                         update["downloaded_bytes"] ?? NSNull(), update["written_bytes"] ?? NSNull()])
+}
+
 public final class Launcher {
     public static let signInStatus = "Sign in to Riot to prepare TFT live."
     public static let gameUpdateStatus = "Installing or updating TFT to the live release…"
@@ -119,6 +125,9 @@ public final class Launcher {
                 try require(manifest.isEmpty || manifest == target, "The running Riot component targets a different release from live. Close Riot and TFT, then reopen TFT Live.")
                 let combined = text(state["combined_patch_state"])
                 if combined == "up_to_date" { if requested { report("Update complete.") }; return }
+                if (requested || combined == "updating") && state["user_cancelled_patching"] as? Bool == true {
+                    throw PreparationCancelled()
+                }
                 if ["out_of_date", "not_installed"].contains(combined) && !requested {
                     report(Self.gameUpdateStatus)
                     let status = api("PUT", patchRequestRoute, [:]).status
@@ -130,7 +139,6 @@ public final class Launcher {
                 }
                 let patch = object(state["patch_status"])
                 if requested || combined == "updating" {
-                    try require(state["user_cancelled_patching"] as? Bool != true, "TFT installation was interrupted. Reopen TFT Live to resume.")
                     try require(patch["error"] == nil || patch["error"] is NSNull, "TFT update failed. Reopen TFT Live to retry.")
                 }
                 if combined == "updating" {
@@ -138,8 +146,7 @@ public final class Launcher {
                     let percent = number(progress["progress"])
                     let shown = progressDecile(percent)
                     if shown > lastShown { report("  \(shown) %"); lastShown = shown }
-                    let activity = try jsonData([progress["phase"] ?? NSNull(), percent, object(progress["update"])["downloaded_bytes"] ?? NSNull(),
-                                                 object(progress["update"])["written_bytes"] ?? NSNull()])
+                    let activity = try patchActivity(progress)
                     if activity != lastActivity { deadline = monotonic() + 600; lastActivity = activity }
                 }
                 if combined == "bad_install_path" && monotonic() - started > 30 { throw LauncherError("The Riot component does not recognize the TFT installation.") }

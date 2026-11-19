@@ -94,8 +94,10 @@ extension RiotRuntime {
         let request = api("PUT", registry + "patch-requests/products/teamfighttactics/patchlines/runtime", [:], lock)
         status = request.status
         try require([200, 201, 204].contains(status), "The Riot patcher refused the runtime download (HTTP \(status)). " + String(text(request.json["message"]).prefix(300)))
-        deadline = monotonic() + 1800
+        let inactivityLimit: TimeInterval = 30 * 60
+        deadline = monotonic() + inactivityLimit
         var lastProgress = -1
+        var lastActivity = try patchActivity([:])
         while monotonic() < deadline {
             try checkCancellation()
             let state = api("GET", registry + "patch-states/products/teamfighttactics/patchlines/runtime", nil, lock)
@@ -103,13 +105,19 @@ extension RiotRuntime {
                 if text(state.json["combined_patch_state"]) == "up_to_date" { return destination }
                 let patch = object(state.json["patch_status"])
                 try require(patch["error"] == nil || patch["error"] is NSNull, "The Riot runtime download failed.")
-                let progress = progressDecile(number(object(patch["progress"])["progress"]))
+                let details = object(patch["progress"])
+                let activity = try patchActivity(details)
+                if activity != lastActivity {
+                    deadline = monotonic() + inactivityLimit
+                    lastActivity = activity
+                }
+                let progress = progressDecile(number(details["progress"]))
                 if progress > lastProgress { report("Updating Riot components, \(progress) %"); lastProgress = progress }
             }
             try require(process.isRunning, "The Riot patcher stopped during the download.")
             pause(1)
         }
-        throw LauncherError("The Riot runtime download timed out.")
+        throw LauncherError("The Riot component download has stopped progressing.")
     }
     public func prepareCandidate(current: URL, manifest: String) throws -> URL {
         guard matches(manifest, runtimeManifestPattern), let url = URL(string: manifest) else {

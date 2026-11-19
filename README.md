@@ -27,6 +27,9 @@ Sign in and follow game updates in Riot Client. TFT Live shows its own window
 for Riot component updates or setup errors. Closing the component update window
 or choosing Quit cancels the update. The launcher waits for the isolated
 downloader to stop and discards its temporary files before exiting.
+Cancelling a game download in Riot also stops launcher preparation. Open TFT Live
+again to retry the download. If setup displays an error, you can retry directly
+from the error window.
 
 The application is ad-hoc signed and has no Apple notarization. macOS may ask
 you to allow it when opening it for the first time.

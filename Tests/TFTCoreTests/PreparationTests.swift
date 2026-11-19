@@ -51,16 +51,20 @@ final class PreparationTests: TemporaryTests {
             #expect(iteration == 2)
         }
     }
-    @Test func cancelledPatchFailsAndCanBeRetried() throws {
+    @Test func cancelledPatchStopsPreparationAndCanBeRetried() throws {
         var iteration = 0
         let launcher = try fixture {
             iteration += 1
             if iteration == 1 { return self.ready(state: "not_installed") }
-            var state = self.ready(state: "updating")
+            if iteration == 4 { return self.ready() }
+            var state = self.ready(state: "out_of_date")
             state["user_cancelled_patching"] = true
             return state
         }
-        #expect(throws: (any Error).self) { try launcher.updateGame("manifest") }
+        #expect(throws: PreparationCancelled.self) { try launcher.updateGame("manifest") }
+        #expect(iteration == 2)
+        try launcher.updateGame("manifest")
+        #expect(iteration == 4)
     }
     @Test func resumedPatchReportsAnExistingError() throws {
         var calls = 0

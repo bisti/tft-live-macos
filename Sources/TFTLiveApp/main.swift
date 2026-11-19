@@ -92,6 +92,20 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
             NSApp.terminate(nil)
             return nil
         }
+        startPreparation()
+    }
+
+    @objc private func startPreparation() {
+        guard state == .idle else { return }
+        state = .preparing
+        panel?.window.delegate = nil
+        panel?.window.close()
+        panel = nil
+        pending = Data()
+        lastLine = "Setup did not complete."
+        allowsAutomaticProgress = true
+        isUpdatingComponents = false
+        componentPercentage = nil
         do {
             let configuration = try Configuration(assets: Bundle.main.resourceURL!)
             try makeDirectory(configuration.data)
@@ -107,7 +121,6 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
             task.standardError = pipe
             try task.run()
             cancellationInput = cancellation.fileHandleForWriting
-            state = .preparing
             DispatchQueue.global(qos: .utility).async {
                 while true {
                     let bytes = pipe.fileHandleForReading.availableData
@@ -119,7 +132,10 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
                 try? pipe.fileHandleForReading.close()
                 DispatchQueue.main.async { self.finish(exitStatus: task.terminationStatus) }
             }
-        } catch { failure(error.localizedDescription) }
+        } catch {
+            state = .idle
+            failure(error.localizedDescription)
+        }
     }
 
     private func consume(_ bytes: Data) {
@@ -212,6 +228,10 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
         let button = NSButton(title: "Close", target: NSApp, action: #selector(NSApplication.terminate(_:)))
         button.frame = NSRect(x: 370, y: 15, width: 85, height: 30)
         panel.window.contentView?.addSubview(button)
+        let retry = NSButton(title: "Retry", target: self, action: #selector(startPreparation))
+        retry.frame = NSRect(x: 275, y: 15, width: 85, height: 30)
+        retry.keyEquivalent = "\r"
+        panel.window.contentView?.addSubview(retry)
         panel.window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
