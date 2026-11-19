@@ -15,23 +15,22 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
     private var lastLine = "Setup did not complete."
     private var progressTimer: Timer?
     private var allowsAutomaticProgress = true
-    private var presentedAutomatically = false
+    private var isUpdatingComponents = false
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         state == .idle
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        guard isUpdatingComponents || state == .idle else { return false }
         progressTimer?.invalidate()
         progressTimer = nil
-        presentedAutomatically = false
         window?.makeKeyAndOrderFront(nil)
         return false
     }
 
     func windowWillClose(_ notification: Notification) {
         allowsAutomaticProgress = false
-        presentedAutomatically = false
         progressTimer?.invalidate()
         progressTimer = nil
     }
@@ -112,32 +111,38 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
     }
 
     private func showStatus(_ line: String) {
-        status.stringValue = line
-        if line == Launcher.signInStatus {
+        let updatingComponents = line.hasPrefix("Updating Riot components, ")
+        if updatingComponents {
+            isUpdatingComponents = true
+        } else if line == Launcher.signInStatus || line == Launcher.gameUpdateStatus ||
+                    line.hasPrefix("Riot update deferred.") ||
+                    (line.hasSuffix(" %") && Int(line.dropLast(2)) != nil) {
+            // The game patcher reports its progress directly in Riot Client.
+            isUpdatingComponents = false
             progressTimer?.invalidate()
             progressTimer = nil
-            if presentedAutomatically { window.orderOut(nil); presentedAutomatically = false }
+            window.orderOut(nil)
         }
 
-        let downloading = line == Launcher.gameUpdateStatus || line.hasPrefix("Updating Riot components, ")
-        let percentage = line.hasSuffix(" %") ? line.dropLast(2).split(separator: " ").last.flatMap { Int($0) } : nil
+        guard isUpdatingComponents else { return }
+        status.stringValue = line
+        let percentage = updatingComponents && line.hasSuffix(" %")
+            ? line.dropLast(2).split(separator: " ").last.flatMap { Int($0) } : nil
         if let percentage, (0...100).contains(percentage) {
             progress.stopAnimation(nil)
             progress.isIndeterminate = false
             progress.doubleValue = Double(percentage)
-            if !downloading { status.stringValue = "Updating TFT, \(percentage) %" }
         } else {
             progress.isIndeterminate = true
             progress.startAnimation(nil)
         }
 
-        guard (downloading || percentage != nil), allowsAutomaticProgress, !window.isVisible,
+        guard allowsAutomaticProgress, !window.isVisible,
               state == .preparing, progressTimer == nil else { return }
         progressTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { [weak self] _ in
             guard let self else { return }
             self.progressTimer = nil
-            guard self.state == .preparing, !self.window.isVisible else { return }
-            self.presentedAutomatically = true
+            guard self.state == .preparing, self.isUpdatingComponents, !self.window.isVisible else { return }
             self.window.orderFrontRegardless()
         }
     }

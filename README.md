@@ -23,10 +23,10 @@ An independent project, unaffiliated with Riot Games.
 The launcher detects your account server, checks its live release, and installs or
 updates the TFT Mac client. The application and its host are native Swift executables.
 
-Sign in using the Riot window. TFT Live shows progress for downloads and displays
-any setup error. You can open TFT Live again to check progress at any time.
-Closing its window lets setup continue in the background. Choosing Quit during
-preparation lets setup and logging finish before the launcher exits.
+Sign in and follow game updates in Riot Client. TFT Live shows its own window
+for Riot component updates or setup errors. Closing that window lets setup
+continue in the background. Choosing Quit during preparation lets setup and
+logging finish before the launcher exits.
 
 The application is ad-hoc signed and has no Apple notarization. macOS may ask
 you to allow it when opening it for the first time.
