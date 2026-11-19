@@ -32,12 +32,13 @@ final class MigrationTests: TemporaryTests {
         return objects(object(platforms[platform])["configurations"])[0]
     }
 
-    @Test func legacyProfileRetainsItsRegionAndGainsDefaults() throws {
+    @Test func profileWithoutTemplatesRetainsItsRegionAndGainsDefaults() throws {
         let config = try setup()
-        let legacyDetails: JSON = ["id": "EUW1", "patch_url": "europe.manifest", "region_data": ["default_region": "EUW1"], "custom": true]
-        let legacy: JSON = ["public": [liveProduct: ["platforms": ["mac": ["configurations": [legacyDetails], "install_dir": "TFT Live 18.5 Game.app"]]]],
-                            "player": ["custom": "player setting"]]
-        let override = try file("profile/" + overrideName, jsonData(legacy))
+        let details: JSON = ["id": "EUW1", "patch_url": "europe.manifest", "region_data": ["default_region": "EUW1"], "custom": true]
+        let platform: JSON = ["configurations": [details], "install_dir": "Teamfight Tactics (Live).app"]
+        let existing: JSON = ["public": [liveProduct: ["platforms": ["mac": platform, "win": platform, "windows": platform]]],
+                              "player": ["custom": "player setting"]]
+        let override = try file("profile/" + overrideName, jsonData(existing))
         let system = try file("profile/" + systemName, Data("default_region: EUW\nenable_self_update: false\n".utf8))
         let regionFile = try file("profile/riot-region.txt", Data("EUW\n".utf8))
         var notifications = 0
@@ -105,19 +106,6 @@ final class MigrationTests: TemporaryTests {
         try writeText(legacy.replacingOccurrences(of: "default_region: EUW", with: "default_region: NA"), to: system)
         #expect(try config.prepareFiles(riotSystem: { conflict }))
         #expect(try readText(system).contains("default_region: JP"))
-    }
-
-    @Test func unmodifiedLegacySystemCanUseItsOriginalSeedAsTheBaseline() throws {
-        let config = try setup()
-        let original = riot.replacingOccurrences(of: "enable_self_update: true # managed by Riot", with: "enable_self_update: true")
-        _ = try file("profile/seed/" + riotAppName + "/Contents/Resources/system.yaml", Data(original.utf8))
-        let system = try file("profile/" + systemName, Data(original.replacingOccurrences(of: "enable_self_update: true", with: "enable_self_update: false").utf8))
-        let legacy = try Data(contentsOf: system)
-
-        #expect(try config.prepareFiles(riotSystem: { riot + "new_feature: true\n" }))
-        #expect(try readText(system).contains("new_feature: true"))
-        let backup = system.appendingPathExtension("backup-" + sha256(legacy))
-        #expect(try Data(contentsOf: backup) == legacy)
     }
 
     @Test func quotedSettingAndImplicitDocumentBoundary() throws {

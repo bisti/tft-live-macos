@@ -3,12 +3,6 @@
 /.cache/
 /dist/
 
-# App bundles left at the repository root by older build scripts
-/TFT Live.app/
-/TFT Live.app.new/
-/TFT Live.app.previous/
-/TFT SDK Host arm64.app/
-
 # macOS metadata and Xcode user settings
 .DS_Store
 ._*

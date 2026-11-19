@@ -11,7 +11,7 @@ do {
     let configuration = try Configuration(assets: bundledAssets)
     if arguments == ["--self-check"] {
         let value: JSON = ["architecture": "arm64", "implementation": "swift", "data_directory": configuration.data.path,
-                           "bundled_host": exists(configuration.hostSource), "installed_riot": try configuration.installedRiot().path]
+                           "installed_riot": try configuration.installedRiot().path]
         print(String(decoding: try jsonData(value), as: UTF8.self))
     } else {
         try Launcher(configuration).run()

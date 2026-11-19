@@ -63,7 +63,7 @@ Settings, sign-in data, and logs are stored in
 The launcher updates its configuration templates when a profile is reopened.
 It keeps local changes when merging new defaults. If a local edit conflicts
 with a Riot system YAML update, the launcher reports the conflict and keeps
-the local file. For older profiles with no recorded template, it preserves
+the local file. When recording a template for the first time, it preserves
 settings whose origin it cannot identify. The launcher still manages the
 active patch URL, region and shared Mac launch configuration for all three
 platform aliases.

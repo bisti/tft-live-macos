@@ -13,8 +13,7 @@ extension Configuration {
         let override = try ConfigurationFile(data.appendingPathComponent("riot-sdk-host-override.json"))
         let system = try ConfigurationFile(data.appendingPathComponent("sdk-host-system.yaml"))
         let newOverride = try overrideMigration(override, source: assets.appendingPathComponent(override.path.lastPathComponent))
-        let seedYAML = initialRuntime.appendingPathComponent(riotAppName + "/Contents/Resources/system.yaml")
-        let newSystem = try systemMigration(system, riotSystem: riotSystem, seedYAML: seedYAML, report: report)
+        let newSystem = try systemMigration(system, riotSystem: riotSystem, report: report)
         let changed = newOverride.content != override.content || newSystem.content != system.content
         if changed { try beforeChangingFiles() }
         try override.install(newOverride)
@@ -28,14 +27,13 @@ extension Configuration {
         let current = try overrideObject(content, name: file.path.path)
         if file.template == template { return ConfigurationUpdate(content: content, template: template) }
         let previous = try file.template.map { try overrideObject($0, name: file.templatePath.path) }
-        let local = previous == nil ? migrateLegacyOverride(current, latest: latest) : current
-        let merged = try mergeOverride(local, previous: previous, latest: latest, hasPrevious: previous != nil) as? JSON ?? current
+        let merged = try mergeOverride(current, previous: previous, latest: latest, hasPrevious: previous != nil) as? JSON ?? current
         let encoded = try jsonData(merged)
         _ = try overrideObject(encoded, name: file.path.path)
         return ConfigurationUpdate(content: encoded == (try jsonData(current)) ? content : encoded, template: template,
                                    saveOriginal: previous == nil)
     }
-    private func systemMigration(_ file: ConfigurationFile, riotSystem: () throws -> String, seedYAML: URL,
+    private func systemMigration(_ file: ConfigurationFile, riotSystem: () throws -> String,
                                  report: (String) -> Void) throws -> ConfigurationUpdate {
         let source: String
         do { source = try riotSystem() }
@@ -56,10 +54,6 @@ extension Configuration {
                 return ConfigurationUpdate(content: local, template: nil, saveOriginal: true)
             }
             merged = try managedSystemYAML(updated, name: file.path.path)
-        } else if let seed = try? Data(contentsOf: seedYAML),
-                  (try? managedSystemYAML(seed, name: seedYAML.path)) == local {
-            // An unmodified legacy copy can be refreshed from the newer official source.
-            merged = latest
         } else {
             // No previous source is known. Differences may be local edits.
             merged = local
@@ -130,41 +124,6 @@ private func overrideObject(_ data: Data, name: String) throws -> JSON {
         try require(entries?.count == 1, "Expected one TFT configuration for " + platform + " in " + name + ".")
     }
     return root
-}
-
-private func migrateLegacyOverride(_ current: JSON, latest: JSON) -> JSON {
-    var settings = object(current["public"])
-    var product = object(settings[liveProduct])
-    let latestProduct = object(object(latest["public"])[liveProduct])
-    var platforms = object(product["platforms"])
-    let latestPlatforms = object(latestProduct["platforms"])
-    for name in ["mac", "win", "windows"] {
-        var platform = object(platforms[name] ?? platforms["mac"])
-        // This was the shipped install name before the native launcher migration.
-        if text(platform["install_dir"]) == "TFT Live 18.5 Game.app" {
-            platform["install_dir"] = object(latestPlatforms[name])["install_dir"]
-        }
-        platforms[name] = platform
-    }
-    product["platforms"] = platforms
-    if var metadata = product["metadata"] as? JSON, var defaults = metadata["default"] as? JSON {
-        let latestDefaults = object(object(latestProduct["metadata"])["default"])
-        if defaults["available_platforms"] as? [String] == ["win", "ios", "android", "mac", "windows"] {
-            defaults["available_platforms"] = latestDefaults["available_platforms"]
-        }
-        if defaults["product_dependency"] as? [String: String] == ["patchline_id": "live", "product_id": "league_of_legends"] {
-            defaults["product_dependency"] = latestDefaults["product_dependency"]
-        }
-        metadata["default"] = defaults
-        if let mac = metadata["mac"] as? [String: String], mac == metadata["twn"] as? [String: String] {
-            metadata["mac"] = object(latestProduct["metadata"])["mac"]
-        }
-        product["metadata"] = metadata
-    }
-    settings[liveProduct] = product
-    var result = current
-    result["public"] = settings
-    return result
 }
 
 private func mergeOverride(_ current: Any?, previous: Any?, latest: Any?,
