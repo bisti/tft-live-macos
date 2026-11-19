@@ -77,6 +77,17 @@ final class IntegrationTests: TemporaryTests {
         let downloaded = try runtime.downloadRuntime(current: repaired, stage: stage, manifest: manifest)
         #expect(exists(downloaded.appendingPathComponent("Contents/Info.plist")))
         #expect(isSymlink(stage.appendingPathComponent(riotAppName)))
+        var cancel = false
+        let cancellingRuntime = RiotRuntime(config, checkCancellation: {
+            if cancel { throw PreparationCancelled() }
+        }, report: { line in
+            if line.hasPrefix("Updating Riot components, ") { cancel = true }
+        })
+        #expect(throws: PreparationCancelled.self) {
+            try cancellingRuntime.prepareCandidate(current: repaired, manifest: manifest)
+        }
+        #expect(try cancellingRuntime.selectedRoot(cancellingRuntime.state()) == resolved(repaired))
+        #expect(try FileManager.default.contentsOfDirectory(atPath: directory.path).allSatisfy { !$0.hasPrefix("runtime-stage-") })
         print("Native preparation, missing SDK/UI repair, headless startup and live Riot runtime download verified.")
         pause(2)
     }

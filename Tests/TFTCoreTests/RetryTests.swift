@@ -22,6 +22,32 @@ final class RuntimeRetryTests: TemporaryTests {
                                 "previous_root": current.path, "previous_manifest": NSNull()])
     }
 
+    @Test func cancelledUpdateLeavesTheCurrentRuntimeSelected() throws {
+        let runtime = try runtime()
+        try runtime.writeState(["root": current.path])
+        #expect(throws: PreparationCancelled.self) {
+            try runtime.ensureRuntime { _, _ in throw PreparationCancelled() }
+        }
+        #expect(try runtime.selectedRoot(runtime.state()) == current)
+        #expect(try runtime.state()["pending"] == nil)
+        #expect(try runtime.state()["incompatible_manifest"] == nil)
+    }
+
+    @Test func cancelledActivationRollsBackWithoutRetryingPreparation() throws {
+        let runtime = try runtime()
+        try pending(runtime)
+        #expect(throws: PreparationCancelled.self) {
+            try runtime.finishSetup(candidate, prepare: { root in
+                #expect(root == candidate)
+                throw PreparationCancelled()
+            }, restore: { root in
+                Issue.record("Cancellation should not start the previous runtime.")
+                return root
+            })
+        }
+        #expect(try runtime.selectedRoot(runtime.state()) == current)
+    }
+
     @Test func legacyRejectionDoesNotDelayTheSameManifest() throws {
         let runtime = try runtime()
         try runtime.writeState(["root": current.path, "rejected_manifest": manifest, "rejected_at": Date().timeIntervalSince1970])

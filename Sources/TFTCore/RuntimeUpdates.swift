@@ -26,6 +26,7 @@ extension RiotRuntime {
         return manifest
     }
     public func downloadRuntime(current: URL, stage: URL, manifest: String) throws -> URL {
+        try checkCancellation()
         let host = stage.appendingPathComponent(hostRelativePath)
         try clone(current.appendingPathComponent(hostRelativePath), host)
         let contents = host.deletingLastPathComponent().deletingLastPathComponent()
@@ -76,6 +77,7 @@ extension RiotRuntime {
         }
         var deadline = monotonic() + 60
         while api("GET", "/product-session/v1/sessions", nil, lock).status != 200 {
+            try checkCancellation()
             try require(process.isRunning && monotonic() < deadline, "The isolated Riot patcher failed to start.")
             pause(0.5)
         }
@@ -83,6 +85,7 @@ extension RiotRuntime {
         deadline = monotonic() + 60
         var status: Int
         repeat {
+            try checkCancellation()
             status = api("PUT", registry + "products/teamfighttactics/patchlines/runtime/install-path", ["root_path": stage.path, "full_path": destination.path], lock).status
             if status != 404 || monotonic() >= deadline || !process.isRunning { break }
             pause(0.5)
@@ -94,6 +97,7 @@ extension RiotRuntime {
         deadline = monotonic() + 1800
         var lastProgress = -1
         while monotonic() < deadline {
+            try checkCancellation()
             let state = api("GET", registry + "patch-states/products/teamfighttactics/patchlines/runtime", nil, lock)
             if state.status == 200 {
                 if text(state.json["combined_patch_state"]) == "up_to_date" { return destination }
@@ -123,8 +127,10 @@ extension RiotRuntime {
         try makeDirectory(stage)
         defer { try? remove(stage) }
         let downloaded = try downloadRuntime(current: current, stage: stage, manifest: manifest)
+        try checkCancellation()
         let prepared = stage.appendingPathComponent("prepared")
         _ = try prepareRuntime(into: prepared, source: downloaded)
+        try checkCancellation()
         let address = try RuntimeMetadata.read(from: prepared).address
         try RuntimeMetadata(address: address, manifest: manifest).write(to: prepared)
         try replaceDirectory(prepared, candidate) { try self.validate(candidate, address: address) }
@@ -151,17 +157,22 @@ extension RiotRuntime {
                 return current
             }
             let candidate = try prepare(current, manifest)
+            report(Self.applyingUpdateStatus)
+            try checkCancellation()
             if candidate.path == current.path {
                 state["manifest"] = manifest
                 try writeState(state)
                 return current
             }
             try quit()
+            try checkCancellation()
             try writeState(["root": candidate.path, "manifest": manifest, "pending": true,
                             "previous_root": current.path, "previous_manifest": state["manifest"] ?? NSNull()])
             report("New Riot components prepared and validated for ARM64.")
             return candidate
         } catch {
+            if error is PreparationCancelled { throw error }
+            try checkCancellation()
             // Retain the selected runtime when an update cannot be prepared.
             if error is RuntimeIncompatibility && !manifest.isEmpty {
                 state["incompatible_manifest"] = manifest

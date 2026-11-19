@@ -1,19 +1,27 @@
 import Foundation
 import Darwin
 
+public struct PreparationCancelled: Error {
+    public init() {}
+}
+
 public final class RiotRuntime {
+    public static let applyingUpdateStatus = "Applying the Riot component update…"
     public let configuration: Configuration
     public let api: LocalAPI
     public let fetch: (URL) throws -> JSON
     public let report: (String) -> Void
+    let checkCancellation: () throws -> Void
     private var children: [Int32: Process] = [:]
     public init(_ configuration: Configuration, api: LocalAPI? = nil, fetch: ((URL) throws -> JSON)? = nil,
+                checkCancellation: @escaping () throws -> Void = {},
                 report: @escaping (String) -> Void = { print($0); fflush(stdout) }) {
         self.configuration = configuration
         let http = HTTPClient()
         self.api = api ?? http.local
         self.fetch = fetch ?? http.json
         self.report = report
+        self.checkCancellation = checkCancellation
     }
     public var data: URL { configuration.data }
     public func state() throws -> JSON {
@@ -108,6 +116,7 @@ public final class RiotRuntime {
             if try state()["pending"] as? Bool != true { throw error }
             try quit()
             guard let previous = try rollback() else { throw error }
+            if error is PreparationCancelled { throw error }
             let restored = try restore(previous)
             report("Automatically restored the previous Riot components. " + error.localizedDescription)
             running = try prepare(restored)

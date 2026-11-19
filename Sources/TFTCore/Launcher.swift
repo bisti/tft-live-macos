@@ -35,6 +35,7 @@ public final class Launcher {
         if original != updated { try writeText(updated, to: path) }
     }
     public func connect(_ root: URL) throws {
+        try runtime.checkCancellation()
         var process: Process?
         if api("GET", sessionRoute).status != 200 {
             let normalLock = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Riot Games/Riot Client/Config/lockfile")
@@ -49,6 +50,7 @@ public final class Launcher {
         let deadline = monotonic() + 600
         var reportedSignIn = false
         while monotonic() < deadline {
+            try runtime.checkCancellation()
             if let process, !process.isRunning {
                 throw LauncherError("The Riot sign-in component stopped during startup (exit code \(process.terminationStatus)).")
             }
@@ -202,6 +204,7 @@ public final class Launcher {
         let candidate = try interruptedUpdate ? current : runtime.ensureRuntime()
         let running = try runtime.finishSetup(candidate, prepare: { root in
             try self.connect(root)
+            try self.runtime.checkCancellation()
             return try self.prepareGame(root, region: region, release: release)
         }, restore: runtime.ensureHealthy)
         report(running ? "Riot is ready. TFT is already running with the Windows session." : "Riot is ready. Click Play in the client to launch TFT live.")

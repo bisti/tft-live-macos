@@ -123,6 +123,7 @@ extension RiotRuntime {
         try atomicJSON(["address": address, "fingerprint": fingerprint], to: root.appendingPathComponent("runtime-health.json"))
     }
     public func prepareRuntime(into destination: URL? = nil, source: URL? = nil) throws -> URL {
+        try checkCancellation()
         let destination = destination ?? configuration.initialRuntime
         if exists(destination.appendingPathComponent("runtime.json")) { try wire(destination); return destination }
         let installed = try source ?? configuration.installedRiot()
@@ -132,15 +133,19 @@ extension RiotRuntime {
         defer { try? remove(stage) }
         let runtime = stage.appendingPathComponent(riotAppName)
         try clone(installed, runtime)
+        try checkCancellation()
         try thinTree(runtime)
+        try checkCancellation()
         try sign(runtime)
         let sdk = stage.appendingPathComponent("sdk-windows-override-arm64/RiotGamesApi.framework")
         try clone(runtime.appendingPathComponent("Contents/Frameworks/RiotGamesApi.framework"), sdk)
         let address = try patchWindowsSDK(sdk.appendingPathComponent("RiotGamesApi"))
         try sign(sdk)
+        try checkCancellation()
         try makeHost(stage)
         try wire(stage)
         try validate(stage, address: address)
+        try checkCancellation()
         try RuntimeMetadata(address: address).write(to: stage)
         try replaceDirectory(stage, destination) { try self.validate(destination, address: address) }
         return destination

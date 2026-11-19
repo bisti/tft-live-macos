@@ -3,7 +3,7 @@ import TFTCore
 
 final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private enum State {
-        case idle, preparing, quittingAfterPreparation
+        case idle, preparing, cancelling, quittingAfterPreparation
     }
 
     private struct Panel {
@@ -21,13 +21,14 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
     private var allowsAutomaticProgress = true
     private var isUpdatingComponents = false
     private var componentPercentage: Int?
+    private var cancellationInput: FileHandle?
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         state == .idle
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
-        guard isUpdatingComponents || state == .idle else { return false }
+        guard (state == .preparing && isUpdatingComponents) || state == .idle else { return false }
         progressTimer?.invalidate()
         progressTimer = nil
         if isUpdatingComponents && panel == nil { showComponentProgress() }
@@ -36,6 +37,10 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
     }
 
     func windowWillClose(_ notification: Notification) {
+        if isUpdatingComponents && state == .preparing {
+            state = .cancelling
+            cancelUpdate()
+        }
         allowsAutomaticProgress = false
         panel = nil
         progressTimer?.invalidate()
@@ -44,9 +49,15 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard state != .idle else { return .terminateNow }
+        if isUpdatingComponents && state == .preparing { cancelUpdate() }
         state = .quittingAfterPreparation
-        panel?.hint.stringValue = "TFT Live will quit when setup finishes."
-        return .terminateLater
+        return .terminateCancel
+    }
+
+    private func cancelUpdate() {
+        panel?.hint.stringValue = "Cancelling the Riot component update…"
+        try? cancellationInput?.close()
+        cancellationInput = nil
     }
 
     private func makePanel() -> Panel {
@@ -62,7 +73,7 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
         let progress = NSProgressIndicator(frame: NSRect(x: 28, y: 50, width: 424, height: 12))
         progress.style = .bar
         window.contentView?.addSubview(progress)
-        let hint = NSTextField(wrappingLabelWithString: "Setup keeps running when you close this window. Open TFT Live again to see progress.")
+        let hint = NSTextField(wrappingLabelWithString: "Close this window to cancel the update.")
         hint.frame = NSRect(x: 28, y: 12, width: 424, height: 32)
         hint.font = .systemFont(ofSize: 12)
         hint.textColor = .secondaryLabelColor
@@ -88,11 +99,14 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
             try log.append(Data())
             let task = Process()
             task.executableURL = Bundle.main.executableURL!.deletingLastPathComponent().appendingPathComponent("TFTLiveCLI")
-            task.standardInput = FileHandle.nullDevice
+            task.arguments = ["--gui"]
+            let cancellation = Pipe()
+            task.standardInput = cancellation
             let pipe = Pipe()
             task.standardOutput = pipe
             task.standardError = pipe
             try task.run()
+            cancellationInput = cancellation.fileHandleForWriting
             state = .preparing
             DispatchQueue.global(qos: .utility).async {
                 while true {
@@ -124,6 +138,7 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
         if updatingComponents {
             isUpdatingComponents = true
         } else if line == Launcher.signInStatus || line == Launcher.gameUpdateStatus ||
+                    line == RiotRuntime.applyingUpdateStatus ||
                     line.hasPrefix("Riot update deferred.") ||
                     (line.hasSuffix(" %") && Int(line.dropLast(2)) != nil) {
             // The game patcher reports its progress directly in Riot Client.
@@ -173,13 +188,13 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate 
     }
 
     private func finish(exitStatus: Int32) {
+        try? cancellationInput?.close()
+        cancellationInput = nil
         progressTimer?.invalidate()
         progressTimer = nil
         let quitting = state == .quittingAfterPreparation
         state = .idle
-        if quitting {
-            NSApp.reply(toApplicationShouldTerminate: true)
-        } else if exitStatus == 0 {
+        if quitting || exitStatus == 0 {
             NSApp.terminate(nil)
         } else {
             let tail = String(decoding: pending, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
