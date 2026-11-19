@@ -71,11 +71,7 @@ platform aliases.
 An existing writable TFT installation can be reused. A new installation uses
 `~/Applications/Teamfight Tactics (Live).app`.
 
-The diagnostic file `selection.json` records the region, version set, manifest
-and release version selected during configuration. A warning means the snapshot
-could be stale. Setup can still finish.
-
-The main log is `~/Library/Application Support/TFT Live/launcher.log`.
+The graphical launcher writes its output to `~/Library/Application Support/TFT Live/launcher.log`.
 Launcher and host console logs use 10 MiB files with three rotated archives.
 Before a new Riot host starts, its session logs are reduced to the three newest
 files per log folder, with older retained files trimmed to 10 MiB.
@@ -99,8 +95,6 @@ The application uses the Swift libraries provided by macOS.
 
 Open `dist/TFT Live.app` to launch the local build. To see preparation output in a terminal,
 run `"./dist/TFT Live.app/Contents/MacOS/TFTLiveCLI"`.
-Add `--log-output` to write progress to `launcher.log`. If a log write fails,
-the CLI prints the affected message to standard output and the error to standard error.
 
 Riot components and resources are prepared on each user's machine from their
 installation or from Riot services.

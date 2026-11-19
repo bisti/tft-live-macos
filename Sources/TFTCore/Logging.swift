@@ -36,7 +36,6 @@ public final class RotatingLog {
             offset += count
         } while offset < data.count
     }
-    public func line(_ message: String) { try? append(Data((message + "\n").utf8)) }
 }
 
 public func trimLog(_ path: URL, limit: Int) throws {

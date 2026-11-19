@@ -190,7 +190,7 @@ public final class Launcher {
         let region = try accountRegion(current)
         let release = try liveRelease(region)
         report("Live version " + region.id + " — " + release.version)
-        let changed = try configuration.configureRegion(region, manifest: release.manifest, version: release.version, report: report)
+        let changed = try configuration.configureRegion(region, manifest: release.manifest)
         let loaded = object(api("GET", patchRoute).json["configuration"])
         if changed || (!loaded.isEmpty && (text(loaded["patch_url"]) != release.manifest || text(loaded["id"]) != region.id)) { try runtime.quit() }
         let candidate = try interruptedUpdate ? current : runtime.ensureRuntime()

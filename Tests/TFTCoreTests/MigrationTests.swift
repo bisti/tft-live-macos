@@ -40,7 +40,6 @@ final class MigrationTests: TemporaryTests {
         let override = try file("profile/" + overrideName, jsonData(legacy))
         let system = try file("profile/" + systemName, Data("default_region: EUW\nenable_self_update: false\n".utf8))
         let regionFile = try file("profile/riot-region.txt", Data("EUW\n".utf8))
-        let selection = try file("profile/selection.json", Data("{\"region\":\"EUW1\"}\n".utf8))
         var notifications = 0
 
         #expect(try config.prepareFiles(riotSystem: { riot }, beforeChangingFiles: { notifications += 1 }))
@@ -56,7 +55,6 @@ final class MigrationTests: TemporaryTests {
         #expect(object(configured["player"])["custom"] as? String == "player setting")
         #expect(try readText(system) == "default_region: EUW\nenable_self_update: false\n")
         #expect(try readText(regionFile) == "EUW\n")
-        #expect(try readText(selection) == "{\"region\":\"EUW1\"}\n")
         let migrated = try Data(contentsOf: override)
         #expect(try !config.prepareFiles(riotSystem: { riot }, beforeChangingFiles: { notifications += 1 }))
         #expect(try Data(contentsOf: override) == migrated)

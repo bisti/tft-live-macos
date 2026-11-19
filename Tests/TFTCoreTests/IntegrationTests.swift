@@ -70,7 +70,7 @@ final class IntegrationTests: TemporaryTests {
         try runtime.quit()
         let region = try regionSettings("NA1", configuration: runtime.officialConfiguration(repaired))
         let release = try Launcher(config, runtime: runtime).liveRelease(region)
-        try config.configureRegion(region, manifest: release.manifest, version: release.version)
+        try config.configureRegion(region, manifest: release.manifest)
         let manifest = try runtime.officialManifest(repaired)
         let stage = directory.appendingPathComponent("download-test")
         try makeDirectory(stage)

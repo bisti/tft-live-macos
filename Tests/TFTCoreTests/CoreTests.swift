@@ -144,8 +144,8 @@ final class RegionTests: TemporaryTests {
         let config = try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory)
         try clone(repository.appendingPathComponent("Resources/riot-sdk-host-override.json"), directory.appendingPathComponent("riot-sdk-host-override.json"))
         let region = try regionSettings("KR", configuration: regionalConfiguration())
-        #expect(try config.configureRegion(region, manifest: "new-manifest", version: "new-version"))
-        #expect(!(try config.configureRegion(region, manifest: "new-manifest", version: "new-version")))
+        #expect(try config.configureRegion(region, manifest: "new-manifest"))
+        #expect(!(try config.configureRegion(region, manifest: "new-manifest")))
         let product = object(object(try readJSON(directory.appendingPathComponent("riot-sdk-host-override.json"))["public"])[liveProduct])
         #expect((object(product["metadata"])["mac"]) == nil)
         #expect((object(object(product["metadata"])["default"])["product_dependency"]) == nil)
@@ -154,6 +154,13 @@ final class RegionTests: TemporaryTests {
             #expect((text(entries.first?["id"])) == ("KR"))
             #expect((text(entries.first?["patch_url"])) == ("new-manifest"))
         }
+    }
+    @Test func requiredRegionWriteFailureIsReported() throws {
+        let config = try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory)
+        try clone(config.assets.appendingPathComponent("riot-sdk-host-override.json"), directory.appendingPathComponent("riot-sdk-host-override.json"))
+        _ = try file("riot-region.txt/keep")
+        let region = try regionSettings("KR", configuration: regionalConfiguration())
+        #expect(throws: (any Error).self) { try config.configureRegion(region, manifest: "selected-manifest") }
     }
     @Test func testSavedGamePathIsReusedAndRelativePathsFail() throws {
         let config = try Configuration(assets: repository.appendingPathComponent("Resources"), data: directory)

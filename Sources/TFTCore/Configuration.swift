@@ -10,7 +10,6 @@ public struct Region: Equatable {
     public let versionSet: String
     public let clientRegion: String
     public let aliases: [String]
-    public var json: JSON { ["region": id, "version_set": versionSet, "client_region": clientRegion, "aliases": aliases] }
 }
 
 public struct Configuration {
@@ -63,10 +62,7 @@ public struct Configuration {
         }
         return entries.max { number($0["updateTime"]) < number($1["updateTime"]) }.map { object($0["data"]) }
     }
-    @discardableResult public func configureRegion(_ region: Region, manifest: String, version: String) throws -> Bool {
-        try configureRegion(region, manifest: manifest, version: version) { fputs($0 + "\n", stderr) }
-    }
-    @discardableResult func configureRegion(_ region: Region, manifest: String, version: String, report: (String) -> Void) throws -> Bool {
+    @discardableResult public func configureRegion(_ region: Region, manifest: String) throws -> Bool {
         let path = data.appendingPathComponent("riot-sdk-host-override.json")
         let original = try readJSON(path)
         var updated = original
@@ -103,17 +99,6 @@ public struct Configuration {
         let regionChanged = (try? readText(regionFile).trimmingCharacters(in: .whitespacesAndNewlines)) != region.clientRegion
         if configChanged { try atomicWrite(encoded, to: path) }
         if regionChanged { try writeText(region.clientRegion + "\n", to: regionFile) }
-        // Keep the diagnostic snapshot available to existing tooling.
-        do {
-            var selection = region.json
-            selection["manifest"] = manifest
-            selection["version"] = version
-            let selectionFile = data.appendingPathComponent("selection.json")
-            let record = try jsonData(selection)
-            if (try? Data(contentsOf: selectionFile)) != record { try atomicWrite(record, to: selectionFile) }
-        } catch {
-            report("Unable to update selection.json: " + error.localizedDescription)
-        }
         return configChanged || regionChanged
     }
 }
