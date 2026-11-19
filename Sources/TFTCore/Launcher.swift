@@ -7,6 +7,8 @@ public let patchRequestRoute = "/rnet-product-registry/v4/patch-requests/product
 public func gameIsRunning(_ sessions: JSON) -> Bool { sessions.values.contains { text(object($0)["productId"]) == "teamfighttactics" } }
 
 public final class Launcher {
+    public static let signInStatus = "Sign in to Riot to prepare TFT live."
+    public static let gameUpdateStatus = "Installing or updating TFT to the live release…"
     public let configuration: Configuration
     public let runtime: RiotRuntime
     public let game: URL
@@ -45,6 +47,7 @@ public final class Launcher {
             process = try runtime.spawn(root.appendingPathComponent(hostRelativePath))
         }
         let deadline = monotonic() + 600
+        var reportedSignIn = false
         while monotonic() < deadline {
             if let process, !process.isRunning {
                 throw LauncherError("The Riot sign-in component stopped during startup (exit code \(process.terminationStatus)).")
@@ -59,6 +62,10 @@ public final class Launcher {
                 let claims = object(try JSONSerialization.jsonObject(with: bytes))
                 try require(text(object(claims["plt"])["id"]) == "windows", "The Riot session is not recognized as Windows.")
                 return
+            }
+            if !reportedSignIn {
+                report(Self.signInStatus)
+                reportedSignIn = true
             }
             pause(1)
         }
@@ -111,7 +118,7 @@ public final class Launcher {
                 let combined = text(state["combined_patch_state"])
                 if combined == "up_to_date" { if requested { report("Update complete.") }; return }
                 if ["out_of_date", "not_installed"].contains(combined) && !requested {
-                    report("Installing or updating TFT to the live release…")
+                    report(Self.gameUpdateStatus)
                     let status = api("PUT", patchRequestRoute, [:]).status
                     try require([200, 201, 204].contains(status), "The Riot component refused the update (HTTP \(status)).")
                     requested = true
@@ -185,7 +192,6 @@ public final class Launcher {
         }
         let current = try runtime.ensureHealthy(selected)
         try runtime.wire(current)
-        report("Sign in to Riot to prepare TFT live.")
         try connect(current)
         let region = try accountRegion(current)
         let release = try liveRelease(region)

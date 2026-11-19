@@ -1,7 +1,7 @@
 import AppKit
 import TFTCore
 
-final class LauncherDelegate: NSObject, NSApplicationDelegate {
+final class LauncherDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private enum State {
         case idle, preparing, quittingAfterPreparation
     }
@@ -13,14 +13,27 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate {
     private var state = State.idle
     private var pending = Data()
     private var lastLine = "Setup did not complete."
+    private var progressTimer: Timer?
+    private var allowsAutomaticProgress = true
+    private var presentedAutomatically = false
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         state == .idle
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        progressTimer?.invalidate()
+        progressTimer = nil
+        presentedAutomatically = false
         window?.makeKeyAndOrderFront(nil)
         return false
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        allowsAutomaticProgress = false
+        presentedAutomatically = false
+        progressTimer?.invalidate()
+        progressTimer = nil
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -37,6 +50,7 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate {
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 178), styleMask: [.titled, .closable], backing: .buffered, defer: false)
         window.title = "TFT Live"
         window.isReleasedWhenClosed = false
+        window.delegate = self
         window.center()
         status = NSTextField(wrappingLabelWithString: "Preparing Riot Client…")
         status.frame = NSRect(x: 28, y: 69, width: 424, height: 60)
@@ -59,7 +73,6 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate {
             NSApp.terminate(nil)
             return nil
         }
-        window.makeKeyAndOrderFront(nil)
         do {
             let configuration = try Configuration(assets: Bundle.main.resourceURL!)
             try makeDirectory(configuration.data)
@@ -94,11 +107,44 @@ final class LauncherDelegate: NSObject, NSApplicationDelegate {
             pending.removeSubrange(...newline)
             if line.isEmpty { continue }
             lastLine = line
-            status.stringValue = line
+            showStatus(line)
+        }
+    }
+
+    private func showStatus(_ line: String) {
+        status.stringValue = line
+        if line == Launcher.signInStatus {
+            progressTimer?.invalidate()
+            progressTimer = nil
+            if presentedAutomatically { window.orderOut(nil); presentedAutomatically = false }
+        }
+
+        let downloading = line == Launcher.gameUpdateStatus || line.hasPrefix("Updating Riot components, ")
+        let percentage = line.hasSuffix(" %") ? line.dropLast(2).split(separator: " ").last.flatMap { Int($0) } : nil
+        if let percentage, (0...100).contains(percentage) {
+            progress.stopAnimation(nil)
+            progress.isIndeterminate = false
+            progress.doubleValue = Double(percentage)
+            if !downloading { status.stringValue = "Updating TFT, \(percentage) %" }
+        } else {
+            progress.isIndeterminate = true
+            progress.startAnimation(nil)
+        }
+
+        guard (downloading || percentage != nil), allowsAutomaticProgress, !window.isVisible,
+              state == .preparing, progressTimer == nil else { return }
+        progressTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.progressTimer = nil
+            guard self.state == .preparing, !self.window.isVisible else { return }
+            self.presentedAutomatically = true
+            self.window.orderFrontRegardless()
         }
     }
 
     private func finish(exitStatus: Int32) {
+        progressTimer?.invalidate()
+        progressTimer = nil
         let quitting = state == .quittingAfterPreparation
         state = .idle
         if quitting {
